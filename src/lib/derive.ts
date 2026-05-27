@@ -7,7 +7,7 @@
  * Edit inputs (add/remove recipes, change servings) → re-run derive().
  */
 
-import type { MealPlan, Recipe, PurchaseItem, UnresolvableIngredient } from "@/types";
+import type { MealPlan, Recipe, PurchaseItem, UnresolvableIngredient, NormalizedIngredient } from "@/types";
 import { normalizeRecipe } from "@/lib/pipeline/normalize";
 import { aggregate } from "@/lib/pipeline/aggregate";
 import { planPurchases } from "@/lib/pipeline/purchase";
@@ -45,9 +45,7 @@ export async function derive(
   mealPlan: MealPlan,
   recipes: Map<string, Recipe>
 ): Promise<DeriveResult> {
-  const allNormalized: ReturnType<typeof normalizeRecipe> extends Promise<infer T>
-    ? T["normalized"]
-    : never[] = [];
+  const allNormalized: NormalizedIngredient[] = [];
   const allUnresolvable: UnresolvableIngredient[] = [];
 
   // Normalize each recipe in the meal plan
