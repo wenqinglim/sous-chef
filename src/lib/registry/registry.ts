@@ -49,7 +49,7 @@ function buildRegistry(): Registry {
   const all: CanonicalIngredient[] = [];
 
   for (const raw of seedData.ingredients) {
-    const ingredient = raw as CanonicalIngredient;
+    const ingredient = raw as unknown as CanonicalIngredient;
     all.push(ingredient);
 
     if (byId.has(ingredient.id)) {
