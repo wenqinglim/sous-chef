@@ -1128,17 +1128,6 @@
       "conversion_factors": { "ml": 1, "tbsp": 14.787, "tsp": 4.929 }
     },
     {
-      "id": "soy_sauce_dark",
-      "name": "Soy Sauce (Dark)",
-      "aliases": ["dark soy sauce", "thick dark soy", "老抽"],
-      "aisle": "asian_grocery",
-      "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
-      "is_staple": true,
-      "canonical_unit": "ml",
-      "conversion_factors": { "ml": 1, "tbsp": 14.787, "tsp": 4.929 }
-    },
-    {
       "id": "apple_cider_vinegar",
       "name": "Apple Cider Vinegar",
       "aliases": ["apple cider vinegar", "acv", "cider vinegar"],
