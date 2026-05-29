@@ -502,11 +502,23 @@
     {
       "id": "soy_sauce_all_purpose",
       "name": "Soy Sauce",
-      "aliases": ["soy sauce", "soya sauce", "all-purpose soy sauce", "regular soy sauce", "tamari"],
+      "aliases": ["soy sauce", "soya sauce", "all-purpose soy sauce", "regular soy sauce"],
       "aisle": "condiments",
       "default_purchase_unit": "bottle",
       "default_purchase_size": 1,
       "is_staple": true,
+      "canonical_unit": "ml",
+      "conversion_factors": { "ml": 1, "tbsp": 14.787, "tsp": 4.929, "cup": 236.588 },
+      "density_g_per_ml": 1.08
+    },
+    {
+      "id": "tamari",
+      "name": "Tamari",
+      "aliases": ["tamari", "tamari sauce", "gluten-free soy sauce", "wheat-free soy sauce"],
+      "aisle": "condiments",
+      "default_purchase_unit": "bottle",
+      "default_purchase_size": 1,
+      "is_staple": false,
       "canonical_unit": "ml",
       "conversion_factors": { "ml": 1, "tbsp": 14.787, "tsp": 4.929, "cup": 236.588 },
       "density_g_per_ml": 1.08
@@ -1121,17 +1133,6 @@
       "name": "Honey",
       "aliases": ["honey", "raw honey", "clear honey"],
       "aisle": "pantry",
-      "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
-      "is_staple": true,
-      "canonical_unit": "ml",
-      "conversion_factors": { "ml": 1, "tbsp": 14.787, "tsp": 4.929 }
-    },
-    {
-      "id": "soy_sauce_dark",
-      "name": "Soy Sauce (Dark)",
-      "aliases": ["dark soy sauce", "thick dark soy", "老抽"],
-      "aisle": "asian_grocery",
       "default_purchase_unit": "bottle",
       "default_purchase_size": 1,
       "is_staple": true,

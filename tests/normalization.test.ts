@@ -34,6 +34,11 @@ describe("Registry integrity", () => {
     const unique = new Set(ids);
     expect(unique.size).toBe(ids.length);
   });
+
+  test("no alias collisions across entries", () => {
+    const collisions = detectAliasCollisions();
+    expect(collisions).toEqual([]);
+  });
 });
 
 // ─── findById ─────────────────────────────────────────────────────────────────
