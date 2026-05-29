@@ -4,6 +4,7 @@ import {
   getAllIngredients,
   detectAliasCollisions,
 } from "@/lib/registry/registry";
+import { lookupIngredient, inferCuisineSource } from "@/lib/normalizers/lookup";
 
 // ─── Registry integrity ───────────────────────────────────────────────────────
 
@@ -211,5 +212,103 @@ describe("Aisle tagging", () => {
 
   test("egg is dairy", () => {
     expect(findById("egg")?.aisle).toBe("dairy");
+  });
+});
+
+// ─── lookupIngredient ─────────────────────────────────────────────────────────
+
+describe("lookupIngredient — direct", () => {
+  test("garlic cloves → garlic", () => {
+    const r = lookupIngredient("garlic cloves");
+    expect(r.canonical_id).toBe("garlic");
+    expect(r.method).toBe("lookup");
+  });
+
+  test("green onions → scallions", () => {
+    expect(lookupIngredient("green onions").canonical_id).toBe("scallions");
+  });
+
+  test("fish sauce → fish_sauce", () => {
+    expect(lookupIngredient("fish sauce").canonical_id).toBe("fish_sauce");
+  });
+});
+
+describe("lookupIngredient — parenthetical stripping", () => {
+  test("native-script paren: 'ginger (生姜)' → ginger_fresh", () => {
+    expect(lookupIngredient("ginger (生姜)").canonical_id).toBe("ginger_fresh");
+  });
+
+  test("prep-note paren: 'garlic (finely chopped)' → garlic", () => {
+    expect(lookupIngredient("garlic (finely chopped)").canonical_id).toBe("garlic");
+  });
+
+  test("substitution paren: 'fish sauce (or soy sauce)' → fish_sauce", () => {
+    expect(lookupIngredient("fish sauce (or soy sauce)").canonical_id).toBe("fish_sauce");
+  });
+});
+
+describe("lookupIngredient — adjective stripping", () => {
+  test("fresh garlic → garlic", () => {
+    expect(lookupIngredient("fresh garlic").canonical_id).toBe("garlic");
+  });
+
+  test("dried shiitake mushrooms → mushroom_shiitake_dried", () => {
+    const r = lookupIngredient("dried shiitake mushrooms");
+    expect(r.canonical_id).toBe("mushroom_shiitake_dried");
+  });
+
+  test("frozen shrimp → shrimp", () => {
+    expect(lookupIngredient("frozen shrimp").canonical_id).toBe("shrimp");
+  });
+});
+
+describe("lookupIngredient — soy sauce disambiguation", () => {
+  test("'soy sauce' on asian site → soy_sauce_light", () => {
+    const r = lookupIngredient("soy sauce", "asian");
+    expect(r.canonical_id).toBe("soy_sauce_light");
+  });
+
+  test("'soy sauce' on western site → soy_sauce_all_purpose", () => {
+    const r = lookupIngredient("soy sauce", "western");
+    expect(r.canonical_id).toBe("soy_sauce_all_purpose");
+  });
+
+  test("'light soy sauce' always → soy_sauce_light regardless of cuisine", () => {
+    expect(lookupIngredient("light soy sauce", "western").canonical_id).toBe(
+      "soy_sauce_light"
+    );
+  });
+});
+
+describe("lookupIngredient — unknowns", () => {
+  test("completely unknown → null", () => {
+    const r = lookupIngredient("___mystery_ingredient___");
+    expect(r.canonical_id).toBeNull();
+    expect(r.method).toBe("unknown");
+    expect(r.confidence).toBe(0);
+  });
+});
+
+// ─── inferCuisineSource ───────────────────────────────────────────────────────
+
+describe("inferCuisineSource", () => {
+  test("woksoflife.com → asian", () => {
+    expect(inferCuisineSource("https://thewoksoflife.com/mapo-tofu")).toBe("asian");
+  });
+
+  test("madewithlau.com → asian", () => {
+    expect(inferCuisineSource("https://madewithlau.com/recipe")).toBe("asian");
+  });
+
+  test("hot-thai-kitchen.com → asian", () => {
+    expect(inferCuisineSource("https://hot-thai-kitchen.com/pad-thai")).toBe("asian");
+  });
+
+  test("recipetineats.com → western (RecipeTin is generic)", () => {
+    expect(inferCuisineSource("https://recipetineats.com/pasta")).toBe("western");
+  });
+
+  test("unknown domain → western", () => {
+    expect(inferCuisineSource("https://example.com/recipe")).toBe("western");
   });
 });
