@@ -181,9 +181,9 @@ Special: stick of butter = 113g; 1 inch ginger ≈ 6g.
 ## Implementation Status
 
 - [x] Task 1: Project scaffold + CLAUDE.md
-- [ ] Task 2: Type definitions
-- [ ] Task 3: Unit conversion + parser
-- [ ] Task 4: Canonical ingredient registry
+- [x] Task 2: Type definitions
+- [x] Task 3: Unit conversion + parser
+- [x] Task 4: Canonical ingredient registry
 - [ ] Task 5: Text cleaning + normalization lookup
 - [ ] Task 6: Schema.org extractor + test fixtures
 - [ ] Task 7: LLM normalization fallback
