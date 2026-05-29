@@ -10,6 +10,7 @@
  */
 
 import { useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import type { Recipe } from "@/types";
 
 interface RecipeRow {
@@ -22,7 +23,7 @@ interface RecipeRow {
 
 interface Props {
   rows: RecipeRow[];
-  onRowsChange: (rows: RecipeRow[]) => void;
+  onRowsChange: Dispatch<SetStateAction<RecipeRow[]>>;
 }
 
 export default function RecipeForm({ rows, onRowsChange }: Props) {
@@ -56,31 +57,29 @@ export default function RecipeForm({ rows, onRowsChange }: Props) {
       const data = await res.json();
 
       if (!res.ok) {
-        const updated = [...newRows];
-        updated[idx] = {
-          ...updated[idx],
-          loading: false,
-          error: data.error ?? "Failed to fetch recipe",
-        };
-        onRowsChange(updated);
+        onRowsChange((prev) =>
+          prev.map((r, i) =>
+            i === idx
+              ? { ...r, loading: false, error: data.error ?? "Failed to fetch recipe" }
+              : r
+          )
+        );
         return;
       }
 
-      const updated = [...newRows];
-      updated[idx] = {
-        ...updated[idx],
-        loading: false,
-        recipe: data.recipe as Recipe,
-      };
-      onRowsChange(updated);
+      onRowsChange((prev) =>
+        prev.map((r, i) =>
+          i === idx ? { ...r, loading: false, recipe: data.recipe as Recipe } : r
+        )
+      );
     } catch {
-      const updated = [...newRows];
-      updated[idx] = {
-        ...updated[idx],
-        loading: false,
-        error: "Network error — please try again",
-      };
-      onRowsChange(updated);
+      onRowsChange((prev) =>
+        prev.map((r, i) =>
+          i === idx
+            ? { ...r, loading: false, error: "Network error — please try again" }
+            : r
+        )
+      );
     }
   }
 

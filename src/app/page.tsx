@@ -25,6 +25,7 @@ export default function HomePage() {
   const [step, setStep] = useState<Step>("input");
   const [rows, setRows] = useState<RecipeRow[]>([]);
   const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
   const [output, setOutput] = useState<OutputState | null>(null);
 
   // Restore from localStorage on mount
@@ -82,6 +83,7 @@ export default function HomePage() {
 
   async function handleGenerateList(confirmedRows: RecipeRow[]) {
     setReviewLoading(true);
+    setReviewError(null);
 
     try {
       const recipes = confirmedRows
@@ -109,8 +111,7 @@ export default function HomePage() {
 
       if (!res.ok) {
         const data = await res.json();
-        console.error("Grocery list error:", data.error);
-        setReviewLoading(false);
+        setReviewError(data.error ?? "Failed to generate grocery list");
         return;
       }
 
@@ -122,7 +123,9 @@ export default function HomePage() {
       });
       setStep("output");
     } catch (err) {
-      console.error("Failed to generate list:", err);
+      setReviewError(
+        err instanceof Error ? err.message : "Failed to generate grocery list"
+      );
     } finally {
       setReviewLoading(false);
     }
@@ -192,7 +195,7 @@ export default function HomePage() {
               {canProceedToReview && (
                 <div className="mt-4 pt-4 border-t border-stone-100">
                   <button
-                    onClick={() => setStep("review")}
+                    onClick={() => { setStep("review"); setReviewError(null); }}
                     className="w-full px-4 py-2.5 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700 transition-colors"
                   >
                     Review ingredients ({loadedRows.length} recipe
@@ -214,6 +217,11 @@ export default function HomePage() {
                 onBack={() => setStep("input")}
                 loading={reviewLoading}
               />
+              {reviewError && (
+                <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                  ⚠️ {reviewError}
+                </div>
+              )}
             </>
           )}
 
