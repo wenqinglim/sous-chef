@@ -98,7 +98,7 @@ export async function batchNormalizeWithLlm(
   for (let i = 0; i < uncached.length; i += BATCH_SIZE) {
     const batch = uncached.slice(i, i + BATCH_SIZE);
     const batchResults = await processBatch(batch);
-    for (const [name, result] of batchResults) {
+    for (const [name, result] of Array.from(batchResults.entries())) {
       results.set(name, result);
       resultCache.set(name, result);
     }
