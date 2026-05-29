@@ -39,7 +39,10 @@ export async function POST(request: NextRequest) {
 
   const { url } = parsed.data;
 
-  // Fetch the recipe page (server-side to bypass CORS)
+  // Fetch the recipe page (server-side to bypass CORS).
+  // MVP assumption: this is a personal-use app and the caller is trusted.
+  // Do not expose this route publicly without adding URL allowlisting to
+  // prevent SSRF against internal addresses (localhost, 169.254.169.254, etc.).
   let html: string;
   try {
     const response = await fetch(url, {

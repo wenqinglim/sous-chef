@@ -7,7 +7,8 @@
  * Storage keys:
  *   sous-chef:meal-plan    MealPlan JSON
  *   sous-chef:recipes      Record<recipe_id, Recipe> JSON
- *   sous-chef:norm-cache   Record<ingredient_name, NormalizationResult> JSON
+ *
+ * Note: the LLM normalization cache is in-memory only (see llm-fallback.ts).
  *
  * Versioning:
  *   Each stored value includes a schemaVersion field.
