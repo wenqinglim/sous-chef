@@ -1,4 +1,4 @@
-import { convert, toBaseUnit, isKnownUnit, getUnitFamily } from "@/lib/units/conversions";
+import { convert, toBaseUnit, isKnownUnit, getUnitFamily, convertCrossFamily } from "@/lib/units/conversions";
 import { parseIngredient, parseNumber } from "@/lib/units/parser";
 
 // ─── parseNumber ─────────────────────────────────────────────────────────────
@@ -136,6 +136,25 @@ describe("parseIngredient — name cleaning", () => {
     const r = parseIngredient("2 scallions, finely chopped");
     expect(r.name).toBe("scallions");
   });
+});
+
+// ─── convertCrossFamily ───────────────────────────────────────────────────────
+
+describe("convertCrossFamily", () => {
+  test("volume → weight: 1 cup water (density 1.0) = 236.588 g", () =>
+    expect(convertCrossFamily(1, "cup", "g", 1.0)).toBeCloseTo(236.588));
+
+  test("weight → volume: 100 g water (density 1.0) = 100 ml", () =>
+    expect(convertCrossFamily(100, "g", "ml", 1.0)).toBeCloseTo(100));
+
+  test("volume → weight with density: 1 tbsp soy sauce (~1.1 g/ml)", () =>
+    expect(convertCrossFamily(1, "tbsp", "g", 1.1)).toBeCloseTo(14.787 * 1.1, 1));
+
+  test("same family (volume→volume) returns null", () =>
+    expect(convertCrossFamily(1, "cup", "tbsp", 1.0)).toBeNull());
+
+  test("unknown unit returns null", () =>
+    expect(convertCrossFamily(1, "cup", "furlong", 1.0)).toBeNull());
 });
 
 describe("parseIngredient — no quantity", () => {

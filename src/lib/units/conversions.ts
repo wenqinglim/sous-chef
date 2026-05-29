@@ -194,8 +194,7 @@ export function convert(
   const to = getUnit(toUnit);
 
   if (!from || !to) return null;
-  if (from.base !== to.base && from.family !== to.family) return null;
-  if (from.family !== to.family) return null;
+  if (from.base !== to.base) return null;
 
   // Convert to base then to target
   const inBase = quantity * from.toBase;
