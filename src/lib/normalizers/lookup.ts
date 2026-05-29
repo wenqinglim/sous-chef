@@ -17,7 +17,7 @@
  */
 
 import type { CanonicalIngredient, CuisineSource, NormalizationResult } from "@/types";
-import { findByAlias, normaliseForLookup } from "@/lib/registry/registry";
+import { findByAlias, findById, normaliseForLookup } from "@/lib/registry/registry";
 
 // ─── Adjectives that don't affect ingredient identity ─────────────────────────
 
@@ -61,7 +61,6 @@ const ASIAN_CUISINE_DOMAINS = [
   "madewithlau.com",
   "hot-thai-kitchen.com",
   "hotthaikitchen.com",
-  "recipetineats.com", // RecipeTin has many Asian recipes — rely on ingredient qualifier instead
 ];
 
 /**
@@ -71,15 +70,7 @@ const ASIAN_CUISINE_DOMAINS = [
  */
 export function inferCuisineSource(url: string): CuisineSource {
   const lower = url.toLowerCase();
-  if (
-    lower.includes("woksoflife.com") ||
-    lower.includes("madewithlau.com") ||
-    lower.includes("hot-thai-kitchen.com") ||
-    lower.includes("hotthaikitchen.com")
-  ) {
-    return "asian";
-  }
-  return "western";
+  return ASIAN_CUISINE_DOMAINS.some((d) => lower.includes(d)) ? "asian" : "western";
 }
 
 // ─── Soy sauce disambiguation ─────────────────────────────────────────────────
@@ -91,13 +82,16 @@ function disambiguateSoySauce(
   cuisineSource: CuisineSource
 ): CanonicalIngredient | null {
   if (!UNQUALIFIED_SOY_SAUCE_RE.test(name.trim())) return null;
-
   const targetId =
     cuisineSource === "asian" ? "soy_sauce_light" : "soy_sauce_all_purpose";
-
-  // Import findById lazily to avoid circular reference
-  const { findById } = require("@/lib/registry/registry") as typeof import("@/lib/registry/registry");
   return findById(targetId);
+}
+
+// ─── Parenthetical stripping ──────────────────────────────────────────────────
+
+/** Remove all parenthetical groups: handles native-script notes, prep notes, substitutions. */
+function stripParentheticals(name: string): string {
+  return name.replace(/\s*\([^)]*\)/g, "").trim();
 }
 
 // ─── Main lookup function ─────────────────────────────────────────────────────
@@ -112,8 +106,10 @@ export function lookupIngredient(
   rawName: string,
   cuisineSource: CuisineSource = "unknown"
 ): NormalizationResult {
-  // Step 1: Soy sauce disambiguation (before any cleaning)
-  const soySauceMatch = disambiguateSoySauce(rawName, cuisineSource);
+  const name = stripParentheticals(rawName);
+
+  // Step 1: Soy sauce disambiguation
+  const soySauceMatch = disambiguateSoySauce(name, cuisineSource);
   if (soySauceMatch) {
     return {
       canonical_id: soySauceMatch.id,
@@ -123,8 +119,8 @@ export function lookupIngredient(
     };
   }
 
-  // Step 2: Direct alias lookup on the raw name
-  const direct = findByAlias(rawName);
+  // Step 2: Direct alias lookup
+  const direct = findByAlias(name);
   if (direct) {
     return {
       canonical_id: direct.id,
@@ -135,8 +131,8 @@ export function lookupIngredient(
   }
 
   // Step 3: Strip leading strippable adjective and retry
-  const withoutAdj = rawName.replace(ADJECTIVE_RE, "").trim();
-  if (withoutAdj !== rawName && withoutAdj.length > 0) {
+  const withoutAdj = name.replace(ADJECTIVE_RE, "").trim();
+  if (withoutAdj !== name && withoutAdj.length > 0) {
     const afterAdj = findByAlias(withoutAdj);
     if (afterAdj) {
       return {
@@ -148,9 +144,9 @@ export function lookupIngredient(
     }
   }
 
-  // Step 4: Strip trailing plural 's' and retry (only if doesn't already end lookup)
-  const singular = rawName.replace(/s$/, "").trim();
-  if (singular !== rawName && singular.length > 2) {
+  // Step 4: Strip trailing plural 's' and retry
+  const singular = name.replace(/s$/, "").trim();
+  if (singular !== name && singular.length > 2) {
     const afterSingular = findByAlias(singular);
     if (afterSingular) {
       return {
@@ -163,7 +159,7 @@ export function lookupIngredient(
   }
 
   // Step 5: Strip adjective then also try singular
-  if (withoutAdj !== rawName && withoutAdj.endsWith("s")) {
+  if (withoutAdj !== name && withoutAdj.endsWith("s")) {
     const adjSingular = withoutAdj.slice(0, -1).trim();
     if (adjSingular.length > 2) {
       const afterBoth = findByAlias(adjSingular);

@@ -233,6 +233,20 @@ describe("lookupIngredient — direct", () => {
   });
 });
 
+describe("lookupIngredient — parenthetical stripping", () => {
+  test("native-script paren: 'ginger (生姜)' → ginger_fresh", () => {
+    expect(lookupIngredient("ginger (生姜)").canonical_id).toBe("ginger_fresh");
+  });
+
+  test("prep-note paren: 'garlic (finely chopped)' → garlic", () => {
+    expect(lookupIngredient("garlic (finely chopped)").canonical_id).toBe("garlic");
+  });
+
+  test("substitution paren: 'fish sauce (or soy sauce)' → fish_sauce", () => {
+    expect(lookupIngredient("fish sauce (or soy sauce)").canonical_id).toBe("fish_sauce");
+  });
+});
+
 describe("lookupIngredient — adjective stripping", () => {
   test("fresh garlic → garlic", () => {
     expect(lookupIngredient("fresh garlic").canonical_id).toBe("garlic");
