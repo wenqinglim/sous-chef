@@ -7,7 +7,7 @@
  *
  * Rounding rules:
  *   - Always round UP (Math.ceil) to the nearest whole purchase unit
- *   - "bunch" items: always 1 bunch if any is needed
+ *   - "bunch" items: round up to nearest whole bunch
  *   - Eggs: round up to nearest half-dozen (6)
  *   - Everything else: Math.ceil(recipe_quantity / purchase_unit_size)
  */
@@ -69,7 +69,7 @@ function roundPurchaseQuantity(
     return Math.ceil(quantityInPurchaseUnits / 6) * 6;
   }
 
-  // Bunch items: always 1 if any is needed
+  // Bunch items: round up to nearest whole bunch
   if (purchaseUnit === "bunch") {
     return Math.ceil(quantityInPurchaseUnits);
   }

@@ -7,7 +7,7 @@
  * Edit inputs (add/remove recipes, change servings) → re-run derive().
  */
 
-import type { MealPlan, Recipe, PurchaseItem, UnresolvableIngredient } from "@/types";
+import type { MealPlan, Recipe, PurchaseItem, NormalizedIngredient, UnresolvableIngredient } from "@/types";
 import { normalizeRecipe } from "@/lib/pipeline/normalize";
 import { aggregate } from "@/lib/pipeline/aggregate";
 import { planPurchases } from "@/lib/pipeline/purchase";
@@ -15,7 +15,7 @@ import { planPurchases } from "@/lib/pipeline/purchase";
 export interface DeriveResult {
   items: PurchaseItem[];
   unresolvable: UnresolvableIngredient[];
-  /** Items grouped by aisle, sorted in store-navigation order */
+  /** Items grouped by aisle. Keys are pre-populated in AISLE_ORDER so iteration order is always store-navigation order. */
   grouped_by_aisle: Record<string, PurchaseItem[]>;
 }
 
@@ -45,9 +45,7 @@ export async function derive(
   mealPlan: MealPlan,
   recipes: Map<string, Recipe>
 ): Promise<DeriveResult> {
-  const allNormalized: ReturnType<typeof normalizeRecipe> extends Promise<infer T>
-    ? T["normalized"]
-    : never[] = [];
+  const allNormalized: NormalizedIngredient[] = [];
   const allUnresolvable: UnresolvableIngredient[] = [];
 
   // Normalize each recipe in the meal plan
@@ -73,17 +71,17 @@ export async function derive(
   // Plan purchases
   const items = planPurchases(aggregated);
 
-  // Group by aisle in display order
+  // Pre-populate keys in store-navigation order so JS insertion order matches AISLE_ORDER
   const grouped_by_aisle: Record<string, PurchaseItem[]> = {};
+  for (const aisle of AISLE_ORDER) {
+    grouped_by_aisle[aisle] = [];
+  }
   for (const item of items) {
-    if (!grouped_by_aisle[item.aisle]) {
-      grouped_by_aisle[item.aisle] = [];
-    }
-    grouped_by_aisle[item.aisle].push(item);
+    (grouped_by_aisle[item.aisle] ??= []).push(item);
   }
 
   // Sort each aisle's items by display_name
-  for (const aisle of Object.keys(grouped_by_aisle)) {
+  for (const aisle of AISLE_ORDER) {
     grouped_by_aisle[aisle].sort((a, b) =>
       a.display_name.localeCompare(b.display_name)
     );
@@ -135,13 +133,21 @@ export function formatForKeep(result: DeriveResult, title?: string): string {
   return lines.join("\n");
 }
 
+const UNIT_PLURAL: Record<string, string> = {
+  bunch: "bunches",
+  box: "boxes",
+  loaf: "loaves",
+  leaf: "leaves",
+  dash: "dashes",
+};
+
+function pluralizeUnit(unit: string, qty: number): string {
+  if (qty <= 1) return unit;
+  return UNIT_PLURAL[unit] ?? (unit.endsWith("s") ? unit : `${unit}s`);
+}
+
 function formatItem(item: PurchaseItem): string {
   const qty = item.purchase_quantity;
-  const unit = item.purchase_unit;
-  const name = item.display_name;
-
-  if (qty === 1) {
-    return `  ${qty} ${unit}  ${name}`;
-  }
-  return `  ${qty} ${unit}s  ${name}`;
+  const unit = pluralizeUnit(item.purchase_unit, qty);
+  return `  ${qty} ${unit}  ${item.display_name}`;
 }

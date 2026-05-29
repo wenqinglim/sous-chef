@@ -47,10 +47,10 @@ export function aggregate(
       });
     } else {
       if (existing.canonical_unit !== item.canonical_unit) {
-        // Unit conflict — same canonical_id but different units
-        // This can happen if one recipe uses volume and another uses weight.
-        // For MVP: add quantities as-is and flag the conflict. The purchase
-        // planning step will emit a conservative estimate.
+        // Unit conflict — same canonical_id but different units (e.g. one recipe
+        // uses volume, another uses weight). For MVP: quantities are summed as-is
+        // and the conflict is silently accepted. unit_conflict is tracked internally
+        // for future use but not surfaced to callers.
         existing.unit_conflict = true;
         existing.total_quantity += item.quantity;
       } else {
