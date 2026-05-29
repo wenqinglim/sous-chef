@@ -1,12 +1,26 @@
+// ─── Aisle taxonomy ──────────────────────────────────────────────────────────
+
+export type Aisle =
+  | "produce"
+  | "meat"
+  | "seafood"
+  | "dairy"
+  | "deli"
+  | "bakery"
+  | "frozen"
+  | "asian_grocery"
+  | "pantry"
+  | "condiments"
+  | "beverages"
+  | "other";
+
 // ─── Canonical Ingredient Registry ───────────────────────────────────────────
 
 export interface CanonicalIngredient {
   id: string;
   name: string;
   aliases: string[];
-  /** Aisle in the store: produce | meat | seafood | dairy | deli | bakery |
-   *  frozen | asian_grocery | pantry | condiments | beverages | other */
-  aisle: string;
+  aisle: Aisle;
   /** e.g. "can", "lb", "bunch", "bottle", "head" */
   default_purchase_unit: string;
   /** Size of the default purchase unit in canonical_unit terms */
@@ -31,7 +45,7 @@ export interface RecipeIngredient {
   raw_text: string;
   /** Parsed quantity (null = "to taste" / "as needed") */
   quantity: number | null;
-  /** Parsed unit string, lowercased (null when quantity is null) */
+  /** Parsed unit string, lowercased (null when no unit appears in the text, e.g. "2 eggs") */
   unit: string | null;
   /** Ingredient name after stripping quantity, unit, and prep notes */
   name: string;
@@ -113,7 +127,7 @@ export interface PurchaseItem {
   purchase_quantity: number;
   /** (purchase_quantity × purchase_size) − recipe_quantity; for post-MVP pantry/leftover features */
   leftover_quantity: number;
-  aisle: string;
+  aisle: Aisle;
   is_staple: boolean;
 }
 
@@ -140,5 +154,5 @@ export interface NormalizationResult {
 export interface GroceryListResponse {
   items: PurchaseItem[];
   unresolvable: UnresolvableIngredient[];
-  grouped_by_aisle: Record<string, PurchaseItem[]>;
+  grouped_by_aisle: Partial<Record<Aisle, PurchaseItem[]>>;
 }
