@@ -49,7 +49,7 @@ function isRecipeObject(obj: SchemaOrgRecipe): boolean {
  * Takes the lower bound of a range (conservative).
  * Returns null if no number found.
  */
-export function parseServings(raw: string | string[] | number | undefined): number | null {
+export function parseServings(raw: string | string[] | number | undefined | null): number | null {
   if (raw === undefined || raw === null) return null;
 
   // Already a number
