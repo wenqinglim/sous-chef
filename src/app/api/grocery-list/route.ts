@@ -10,6 +10,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+
+export const maxDuration = 60;
 import { derive } from "@/lib/derive";
 import type { MealPlan, Recipe } from "@/types";
 

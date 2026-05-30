@@ -12,6 +12,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+
+export const maxDuration = 60;
 import { normalizeRecipe } from "@/lib/pipeline/normalize";
 import type { Recipe } from "@/types";
 

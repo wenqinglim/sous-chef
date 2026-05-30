@@ -16,6 +16,15 @@ import { z } from "zod";
 import { extractFromSchemaOrg, extractBodyText } from "@/lib/extractors/schema-org";
 import { extractWithLlm } from "@/lib/extractors/llm-fallback";
 
+export const maxDuration = 60;
+
+const ALLOWED_HOSTS = [
+  "recipetineats.com",
+  "thewoksoflife.com",
+  "hot-thai-kitchen.com",
+  "madewithlau.com",
+];
+
 const RequestSchema = z.object({
   url: z.string().url(),
 });
@@ -39,10 +48,12 @@ export async function POST(request: NextRequest) {
 
   const { url } = parsed.data;
 
+  const hostname = new URL(url).hostname.replace(/^www\./, "");
+  if (!ALLOWED_HOSTS.some((h) => hostname === h || hostname.endsWith("." + h))) {
+    return NextResponse.json({ error: "URL not from a supported recipe site" }, { status: 400 });
+  }
+
   // Fetch the recipe page (server-side to bypass CORS).
-  // MVP assumption: this is a personal-use app and the caller is trusted.
-  // Do not expose this route publicly without adding URL allowlisting to
-  // prevent SSRF against internal addresses (localhost, 169.254.169.254, etc.).
   let html: string;
   try {
     const response = await fetch(url, {
