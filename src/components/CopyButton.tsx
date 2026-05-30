@@ -11,8 +11,8 @@
 
 import { useState } from "react";
 import type { PurchaseItem } from "@/types";
-import { formatForKeep } from "@/lib/derive";
-import type { DeriveResult } from "@/lib/derive";
+import { formatForKeep } from "@/lib/format";
+import type { DeriveResult } from "@/lib/format";
 
 interface Props {
   items: PurchaseItem[];
