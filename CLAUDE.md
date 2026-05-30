@@ -41,7 +41,7 @@ npm run build    # production build
 ## Verification Checklist (manual smoke test)
 
 1. **Single recipe**: Enter a RecipeTin Eats URL, set 4 servings → verify title shows, ingredients render in review step
-2. **Scaling**: Change servings to 6 → confirm quantities scale (not base servings)
+2. **Scaling**: Change servings to 6 → confirm quantities reflect target_servings, not base_servings
 3. **Multi-recipe**: Add a Woks of Life recipe alongside RecipeTin Eats → verify shared ingredients (garlic) aggregate into one line item
 4. **Soy sauce test**: Woks of Life recipe → soy sauce should show as "Soy Sauce (Light)" in the list
 5. **Copy to Google Keep**: click copy → paste into Google Keep note → each line becomes a checkbox
