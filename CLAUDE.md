@@ -190,5 +190,5 @@ Special: stick of butter = 113g; 1 inch ginger ≈ 6g.
 - [x] Task 8: Pipeline (extract + normalize + aggregate + purchase)
 - [x] Task 9: API routes
 - [x] Task 10: localStorage helpers
-- [ ] Task 11: UI components + main page
+- [x] Task 11: UI components + main page
 - [ ] Task 12: Integration tests + final CLAUDE.md update
