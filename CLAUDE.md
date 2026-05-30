@@ -26,9 +26,27 @@ ANTHROPIC_API_KEY=sk-ant-...
 ```bash
 npm install
 npm run dev      # http://localhost:3000
-npm test         # run all tests
+npm test         # run all tests (145 passing)
 npm run build    # production build
 ```
+
+## Test Coverage
+
+145 tests across 4 suites:
+- `tests/units.test.ts` — unit conversions + ingredient text parser (47 tests)
+- `tests/normalization.test.ts` — registry lookup, alias matching, soy sauce disambiguation (47 tests)
+- `tests/extraction.test.ts` — schema.org extraction for all 4 target sites (36 tests)
+- `tests/pipeline.test.ts` — aggregate, purchase planning, full derive() (15 tests)
+
+## Verification Checklist (manual smoke test)
+
+1. **Single recipe**: Enter a RecipeTin Eats URL, set 4 servings → verify title shows, ingredients render in review step
+2. **Scaling**: Change servings to 6 → confirm quantities reflect target_servings, not base_servings
+3. **Multi-recipe**: Add a Woks of Life recipe alongside RecipeTin Eats → verify shared ingredients (garlic) aggregate into one line item
+4. **Soy sauce test**: Woks of Life recipe → soy sauce should show as "Soy Sauce (Light)" in the list
+5. **Copy to Google Keep**: click copy → paste into Google Keep note → each line becomes a checkbox
+6. **Thai script**: Hot Thai Kitchen recipe → Thai characters in parentheses stripped from ingredient names
+7. **LocalStorage restore**: close and reopen the browser → previously loaded recipes should still be there
 
 ## Architecture — Five-Layer Pipeline
 
@@ -191,4 +209,4 @@ Special: stick of butter = 113g; 1 inch ginger ≈ 6g.
 - [x] Task 9: API routes
 - [x] Task 10: localStorage helpers
 - [x] Task 11: UI components + main page
-- [ ] Task 12: Integration tests + final CLAUDE.md update
+- [x] Task 12: Integration tests + final CLAUDE.md update
