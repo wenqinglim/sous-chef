@@ -50,8 +50,9 @@ const AISLE_LABELS: Record<string, string> = {
 function formatQuantity(item: PurchaseItem): string {
   const qty = item.purchase_quantity;
   const unit = item.purchase_unit;
-  // Don't pluralise some units
-  const noPlural = new Set(["g", "ml", "oz", "lb", "kg", "each"]);
+  // "each" is redundant for countable items — just show the number
+  if (unit === "each") return `${qty}`;
+  const noPlural = new Set(["g", "ml", "oz", "lb", "kg"]);
   const unitStr = qty === 1 || noPlural.has(unit) ? unit : unit + "s";
   return `${qty} ${unitStr}`;
 }

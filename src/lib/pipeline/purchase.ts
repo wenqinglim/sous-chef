@@ -57,23 +57,8 @@ function toPurchaseUnitQuantity(
 
 // ─── Special rounding cases ───────────────────────────────────────────────────
 
-function roundPurchaseQuantity(
-  quantityInPurchaseUnits: number,
-  purchaseUnit: string,
-  canonicalId: string
-): number {
+function roundPurchaseQuantity(quantityInPurchaseUnits: number): number {
   if (quantityInPurchaseUnits <= 0) return 0;
-
-  // Eggs: round to nearest half-dozen
-  if (canonicalId === "egg") {
-    return Math.ceil(quantityInPurchaseUnits / 6) * 6;
-  }
-
-  // Bunch items: round up to nearest whole bunch
-  if (purchaseUnit === "bunch") {
-    return Math.ceil(quantityInPurchaseUnits);
-  }
-
   return Math.ceil(quantityInPurchaseUnits);
 }
 
@@ -84,6 +69,12 @@ function roundPurchaseQuantity(
  *
  * @param aggregated  One entry per canonical_id (from aggregate())
  * @returns           PurchaseItem[] with all fields populated
+ *
+ * Rounding rules (revised):
+ *   - Always Math.ceil to nearest whole purchase unit
+ *   - "bunch" items: handled naturally by Math.ceil
+ *   - Eggs: Math.ceil to nearest dozen (purchase_unit is already "dozen")
+ *   - Everything else: Math.ceil(recipe_quantity / purchase_unit_size)
  */
 export function planPurchases(aggregated: AggregatedIngredient[]): PurchaseItem[] {
   const items: PurchaseItem[] = [];
@@ -107,11 +98,7 @@ export function planPurchases(aggregated: AggregatedIngredient[]): PurchaseItem[
     );
 
     // Round up to whole purchase units
-    const purchaseQuantity = roundPurchaseQuantity(
-      purchaseUnitsNeeded,
-      purchaseUnit,
-      canonical.id
-    );
+    const purchaseQuantity = roundPurchaseQuantity(purchaseUnitsNeeded);
 
     // Leftover in canonical units:
     //   purchased = purchaseQuantity × purchaseSize (canonical units per unit)

@@ -17,7 +17,7 @@ import type {
   CuisineSource,
 } from "@/types";
 import { parseIngredient } from "@/lib/units/parser";
-import { toBaseUnit } from "@/lib/units/conversions";
+import { toBaseUnit, convert } from "@/lib/units/conversions";
 import { lookupIngredient } from "@/lib/normalizers/lookup";
 import { batchNormalizeWithLlm } from "@/lib/normalizers/llm-fallback";
 import { findById } from "@/lib/registry/registry";
@@ -38,7 +38,8 @@ export interface NormalizeResult {
 function toCanonicalQuantity(
   quantity: number,
   unit: string | null,
-  canonicalUnit: string
+  canonicalUnit: string,
+  conversionFactors: Record<string, number>
 ): number {
   if (!unit) return quantity;
 
@@ -49,7 +50,16 @@ function toCanonicalQuantity(
   // If canonical unit matches the base unit, we're done
   if (baseResult.unit === canonicalUnit) return baseResult.value;
 
-  // Otherwise return the base value — aggregation will handle unit mismatches
+  // Use ingredient-specific factor to cross unit families (e.g. g→each for tomato)
+  // conversionFactors[unit] = canonical_units per 1 of that unit
+  const factor = conversionFactors[baseResult.unit];
+  if (factor && factor > 0) return baseResult.value * factor;
+
+  // Try generic same-family conversion as last resort
+  const converted = convert(baseResult.value, baseResult.unit, canonicalUnit);
+  if (converted !== null) return converted;
+
+  // Cannot convert — return raw base value as best estimate
   return baseResult.value;
 }
 
@@ -102,7 +112,8 @@ export async function normalizeRecipe(
       const canonicalQty = toCanonicalQuantity(
         scaledQty,
         p.unit,
-        canonical.canonical_unit
+        canonical.canonical_unit,
+        canonical.conversion_factors
       );
 
       normalized.push({
@@ -137,7 +148,8 @@ export async function normalizeRecipe(
           const canonicalQty = toCanonicalQuantity(
             scaledQty,
             p.unit,
-            canonical.canonical_unit
+            canonical.canonical_unit,
+            canonical.conversion_factors
           );
 
           normalized.push({
