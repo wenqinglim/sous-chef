@@ -181,6 +181,59 @@ describe("Full pipeline — Pad Thai (single recipe, 2→4 servings)", () => {
   });
 });
 
+// ─── Regression: egg rounding ────────────────────────────────────────────────
+
+describe("planPurchases — regression: egg rounding", () => {
+  test("4 eggs → 1 dozen, not 6 dozens", () => {
+    const agg = [
+      { canonical_id: "egg", total_quantity: 4, canonical_unit: "each", contributing_recipe_ids: ["r1"] },
+    ];
+    const items = planPurchases(agg);
+    expect(items[0].purchase_unit).toBe("dozen");
+    expect(items[0].purchase_quantity).toBe(1);
+  });
+
+  test("13 eggs → 2 dozens", () => {
+    const agg = [
+      { canonical_id: "egg", total_quantity: 13, canonical_unit: "each", contributing_recipe_ids: ["r1"] },
+    ];
+    const items = planPurchases(agg);
+    expect(items[0].purchase_quantity).toBe(2);
+  });
+});
+
+// ─── Regression: g→each unit conversion ──────────────────────────────────────
+
+describe("normalizeRecipe — regression: weight→count conversion", () => {
+  test("400g tomatoes normalizes to ~3.2 each, not 400 each", async () => {
+    const recipeId = "test-recipe";
+    const recipe: Recipe = {
+      id: recipeId,
+      url: "https://example.com/recipe",
+      title: "Test Recipe",
+      base_servings: 4,
+      parsed_at: new Date().toISOString(),
+      cuisine_source: "western",
+      ingredients: [
+        {
+          recipe_id: recipeId,
+          raw_text: "400g tomatoes",
+          quantity: 400,
+          unit: "g",
+          name: "tomatoes",
+          canonical_id: null,
+        },
+      ],
+    };
+    const result = await normalizeRecipe(recipe, 4);
+    const tomato = result.normalized.find((n) => n.canonical_id === "tomato");
+    expect(tomato).toBeDefined();
+    // 400g × 0.008 (each/g from conversion_factors) = 3.2 each
+    expect(tomato!.quantity).toBeCloseTo(3.2, 1);
+    expect(tomato!.quantity).toBeLessThan(10); // guard: must not be raw gram value
+  });
+});
+
 // ─── derive() — multi-recipe meal plan ───────────────────────────────────────
 
 describe("derive() — multi-recipe meal plan", () => {

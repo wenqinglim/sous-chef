@@ -5,11 +5,7 @@
  * Emits ALL fields on PurchaseItem from day one — even those the MVP UI
  * doesn't display (leftover_quantity, aisle, is_staple).
  *
- * Rounding rules:
- *   - Always round UP (Math.ceil) to the nearest whole purchase unit
- *   - "bunch" items: round up to nearest whole bunch
- *   - Eggs: round up to nearest half-dozen (6)
- *   - Everything else: Math.ceil(recipe_quantity / purchase_unit_size)
+ * Rounding: always Math.ceil to the nearest whole purchase unit.
  */
 
 import type { AggregatedIngredient, PurchaseItem } from "@/types";
