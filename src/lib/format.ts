@@ -1,8 +1,16 @@
-import type { PurchaseItem } from "@/types";
+/**
+ * Grocery list formatting utilities — client-safe, no pipeline imports.
+ *
+ * Kept separate from derive.ts so client components (CopyButton) can import
+ * formatForKeep without pulling the server-side pipeline (and Anthropic SDK)
+ * into the browser bundle.
+ */
+
+import type { PurchaseItem, UnresolvableIngredient } from "@/types";
 
 export interface DeriveResult {
   items: PurchaseItem[];
-  unresolvable: unknown[];
+  unresolvable: UnresolvableIngredient[];
   grouped_by_aisle: Record<string, PurchaseItem[]>;
 }
 
@@ -40,6 +48,10 @@ function formatItem(item: PurchaseItem): string {
   return `  ${qty} ${unit}  ${item.display_name}`;
 }
 
+/**
+ * Format the grocery list as plain text for copying into Google Keep.
+ * Google Keep turns line breaks into checklist items.
+ */
 export function formatForKeep(result: DeriveResult, title?: string): string {
   const lines: string[] = [];
 
