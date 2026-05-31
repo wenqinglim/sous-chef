@@ -234,6 +234,7 @@ export default function HomePage() {
                 items={output.items}
                 unresolvable={output.unresolvable}
                 grouped_by_aisle={output.grouped_by_aisle}
+                onBack={() => setStep("review")}
                 onReset={handleReset}
               />
             </>

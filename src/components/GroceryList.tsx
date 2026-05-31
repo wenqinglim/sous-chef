@@ -14,6 +14,7 @@ interface Props {
   items: PurchaseItem[];
   unresolvable: UnresolvableIngredient[];
   grouped_by_aisle: Record<string, PurchaseItem[]>;
+  onBack: () => void;
   onReset: () => void;
 }
 
@@ -61,6 +62,7 @@ export default function GroceryList({
   items,
   unresolvable,
   grouped_by_aisle,
+  onBack,
   onReset,
 }: Props) {
   const nonStaples = items.filter((i) => !i.is_staple);
@@ -150,13 +152,19 @@ export default function GroceryList({
         </div>
       )}
 
-      {/* Start over */}
-      <div className="pt-2 border-t border-stone-100">
+      {/* Navigation */}
+      <div className="pt-2 border-t border-stone-100 flex gap-4">
+        <button
+          onClick={onBack}
+          className="text-sm text-stone-400 hover:text-stone-600 transition-colors"
+        >
+          ← Edit ingredients
+        </button>
         <button
           onClick={onReset}
           className="text-sm text-stone-400 hover:text-stone-600 transition-colors"
         >
-          ← Start a new list
+          Start a new list
         </button>
       </div>
     </div>
