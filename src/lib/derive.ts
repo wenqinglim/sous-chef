@@ -13,6 +13,7 @@ import { aggregate } from "@/lib/pipeline/aggregate";
 import { planPurchases } from "@/lib/pipeline/purchase";
 import { AISLE_ORDER, type DeriveResult } from "@/lib/format";
 export type { DeriveResult } from "@/lib/format";
+export { formatForKeep } from "@/lib/format";
 
 /**
  * Derive a complete grocery list from a meal plan and the cached recipe data.
@@ -68,4 +69,3 @@ export async function derive(
 
   return { items, unresolvable: allUnresolvable, grouped_by_aisle };
 }
-
