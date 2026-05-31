@@ -47,6 +47,13 @@ const STRIPPABLE_ADJECTIVES = [
   "peeled",
   "trimmed",
   "crushed",
+  // Size and quality descriptors
+  "small",
+  "medium",
+  "large",
+  "good",
+  "quality",
+  "good quality",
 ];
 
 const ADJECTIVE_RE = new RegExp(
