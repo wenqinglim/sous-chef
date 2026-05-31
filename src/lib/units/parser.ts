@@ -235,6 +235,16 @@ function extractLeadingNumber(
     if (qty !== null) return { quantity: qty, consumed: mixed[1].length };
   }
 
+  // 2b. Integer + space + unicode fraction: "2 ½"
+  const spaceUnicode = s.match(new RegExp(`^(\\d+)\\s+([${UF}])(?=\\s|$)`));
+  if (spaceUnicode) {
+    const frac = UNICODE_FRACTIONS[spaceUnicode[2]];
+    if (frac !== undefined) {
+      const qty = parseInt(spaceUnicode[1], 10) + frac;
+      return { quantity: qty, consumed: spaceUnicode[0].length };
+    }
+  }
+
   // 3. Integer + unicode fraction (no space): "1½"
   const intUnicode = s.match(new RegExp(`^(\\d+[${UF}])`));
   if (intUnicode) {
@@ -366,14 +376,18 @@ export function parseIngredient(rawText: string): ParsedQuantity {
 export function cleanName(raw: string): string {
   let s = raw;
 
-  // Strip prep notes after comma
+  // Strip prep notes after comma (specific patterns first)
   s = s.replace(PREP_NOTE_RE, "");
+
+  // Strip any remaining content after a comma — in recipes, commas
+  // almost always separate the ingredient name from prep context
+  s = s.replace(/,.*$/, "");
 
   // Strip any remaining parenthetical content
   s = s.replace(/\s*\([^)]*\)/g, "");
 
-  // Strip trailing punctuation
-  s = s.replace(/[,;.–—\-]+$/, "");
+  // Strip trailing punctuation (including dangling close-paren)
+  s = s.replace(/[,;.–—\-\)]+$/, "");
 
   return s.trim().toLowerCase();
 }
