@@ -25,9 +25,15 @@ function toPurchaseUnitQuantity(
   totalQuantity: number,
   canonicalUnit: string,
   purchaseUnit: string,
+  purchaseSize: number,
   conversionFactors: Record<string, number>
 ): number {
-  if (canonicalUnit === purchaseUnit) return totalQuantity;
+  if (canonicalUnit === purchaseUnit) {
+    // Same unit, but the purchase comes in packs of `purchaseSize`
+    // (e.g. eggs counted "each" sold by the dozen would use the factor path;
+    //  here purchaseSize is 1 for genuine 1:1 units).
+    return purchaseSize > 0 ? totalQuantity / purchaseSize : totalQuantity;
+  }
 
   // Try conversion_factors table (ingredient-specific)
   const factor = conversionFactors[purchaseUnit];
@@ -46,6 +52,12 @@ function toPurchaseUnitQuantity(
   if (baseA && baseB && baseA.unit === baseB.unit) {
     return baseA.value / baseB.value;
   }
+
+  // Final fallback: default_purchase_size is, by definition, the number of
+  // canonical units in one purchase unit (e.g. 500 g per spaghetti package).
+  // Dividing by it is correct for any opaque purchase unit (package/can/bag)
+  // that has no entry in conversion_factors.
+  if (purchaseSize > 0) return totalQuantity / purchaseSize;
 
   // Cannot convert — return raw quantity
   return totalQuantity;
@@ -90,6 +102,7 @@ export function planPurchases(aggregated: AggregatedIngredient[]): PurchaseItem[
       agg.total_quantity,
       agg.canonical_unit,
       purchaseUnit,
+      purchaseSize,
       canonical.conversion_factors
     );
 

@@ -272,3 +272,124 @@ describe("derive() — multi-recipe meal plan", () => {
     expect(typeof result.grouped_by_aisle).toBe("object");
   });
 });
+
+// ─── Regression: opaque purchase-unit math (spaghetti) ────────────────────────
+
+describe("planPurchases — opaque purchase units use default_purchase_size", () => {
+  test("500g spaghetti → 1 package, 0 leftover (not 500 packages)", () => {
+    const items = planPurchases([
+      {
+        canonical_id: "pasta_spaghetti",
+        total_quantity: 500,
+        canonical_unit: "g",
+        contributing_recipe_ids: ["r1"],
+      },
+    ]);
+    expect(items[0].purchase_unit).toBe("package");
+    expect(items[0].purchase_quantity).toBe(1);
+    expect(items[0].leftover_quantity).toBe(0);
+  });
+
+  test("750g spaghetti → 2 packages (ceil), 250g leftover", () => {
+    const items = planPurchases([
+      {
+        canonical_id: "pasta_spaghetti",
+        total_quantity: 750,
+        canonical_unit: "g",
+        contributing_recipe_ids: ["r1"],
+      },
+    ]);
+    expect(items[0].purchase_quantity).toBe(2);
+    expect(items[0].leftover_quantity).toBeCloseTo(250);
+  });
+});
+
+// ─── Regression: slice → weight conversion (galangal) ─────────────────────────
+
+describe("normalizeRecipe + planPurchases — galangal slices", () => {
+  function galangalRecipe(): Recipe {
+    return {
+      id: "g1",
+      url: "https://hot-thai-kitchen.com/x",
+      title: "Galangal Test",
+      base_servings: 4,
+      parsed_at: new Date().toISOString(),
+      cuisine_source: "asian",
+      ingredients: [
+        {
+          recipe_id: "g1",
+          raw_text: "6 slices galangal, chopped",
+          quantity: null,
+          unit: null,
+          name: "",
+          canonical_id: null,
+        },
+      ],
+    };
+  }
+
+  test("6 slices ×2 servings → 60g, purchased as 2 pieces (not 12)", async () => {
+    const { normalized } = await normalizeRecipe(galangalRecipe(), 8);
+    const g = normalized.find((n) => n.canonical_id === "galangal");
+    expect(g).toBeDefined();
+    expect(g!.canonical_unit).toBe("g");
+    expect(g!.quantity).toBeCloseTo(60); // 12 slices × 5 g
+
+    const items = planPurchases(aggregate(normalized));
+    const item = items.find((i) => i.canonical_id === "galangal")!;
+    expect(item.purchase_unit).toBe("piece");
+    expect(item.purchase_quantity).toBe(2); // ceil(60 / 50)
+  });
+});
+
+// ─── Regression: end-to-end screenshot recipe resolves without LLM ────────────
+
+describe("derive() — messy recipe resolves with registry only (no API key)", () => {
+  test("none of the common ingredients land in 'couldn't categorise'", async () => {
+    const recipe: Recipe = {
+      id: "screenshot",
+      url: "https://hot-thai-kitchen.com/tom-yum-pasta",
+      title: "Tom Yum Pasta",
+      base_servings: 2,
+      parsed_at: new Date().toISOString(),
+      cuisine_source: "asian",
+      ingredients: [
+        "1 stalk lemongrass, bottom half only, thinly sliced",
+        "6 slices galangal, chopped",
+        "6 kaffir lime leaves, finely julienned",
+        "1-3 Thai chilies, to taste",
+        "Half a medium onion, chopped",
+        "2 Tbsp Thai chili paste",
+        "1 ½ Tbsp fish sauce",
+        "14 oz good quality whole peeled plum tomatoes (half of a 28oz/796ml can)",
+        "150g shimeji mushrooms (see note)",
+        "12-15 medium shrimp, or as many as you'd like",
+        "250g spaghetti",
+        "1 ½ - 2 Tbsp lime juice",
+        "Chopped cilantro, as much as you want",
+        "Grated parmesan cheese for serving",
+      ].map((raw_text) => ({
+        recipe_id: "screenshot",
+        raw_text,
+        quantity: null,
+        unit: null,
+        name: "",
+        canonical_id: null,
+      })),
+    };
+
+    const mealPlan: MealPlan = {
+      id: uuidv4(),
+      name: null,
+      recipes: [{ recipe_id: recipe.id, target_servings: 4 }],
+    };
+    const result = await derive(mealPlan, new Map([[recipe.id, recipe]]));
+
+    // Every line should resolve via the registry alone.
+    expect(result.unresolvable).toEqual([]);
+
+    // Spaghetti is sane (1 package for 500g), not 500 packages.
+    const spaghetti = result.items.find((i) => i.canonical_id === "pasta_spaghetti")!;
+    expect(spaghetti.purchase_quantity).toBe(1);
+  });
+});

@@ -26,17 +26,17 @@ ANTHROPIC_API_KEY=sk-ant-...
 ```bash
 npm install
 npm run dev      # http://localhost:3000
-npm test         # run all tests (145 passing)
+npm test         # run all tests (172 passing)
 npm run build    # production build
 ```
 
 ## Test Coverage
 
-145 tests across 4 suites:
-- `tests/units.test.ts` — unit conversions + ingredient text parser (47 tests)
-- `tests/normalization.test.ts` — registry lookup, alias matching, soy sauce disambiguation (47 tests)
+172 tests across 4 suites:
+- `tests/units.test.ts` — unit conversions + ingredient text parser, incl. mixed/unicode ranges (57 tests)
+- `tests/normalization.test.ts` — registry lookup, alias matching, soy sauce disambiguation, messy-name robustness (57 tests)
 - `tests/extraction.test.ts` — schema.org extraction for all 4 target sites (36 tests)
-- `tests/pipeline.test.ts` — aggregate, purchase planning, full derive() (15 tests)
+- `tests/pipeline.test.ts` — aggregate, purchase planning, full derive(), purchase-unit + slice→weight regressions (22 tests)
 
 ## Verification Checklist (manual smoke test)
 

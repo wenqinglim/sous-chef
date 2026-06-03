@@ -38,7 +38,7 @@
       ],
       "aisle": "produce",
       "default_purchase_unit": "piece",
-      "default_purchase_size": 1,
+      "default_purchase_size": 50,
       "is_staple": false,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -479,7 +479,7 @@
       ],
       "aisle": "produce",
       "default_purchase_unit": "piece",
-      "default_purchase_size": 1,
+      "default_purchase_size": 50,
       "is_staple": false,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -684,6 +684,9 @@
       "aliases": [
         "thai chili",
         "thai chilli",
+        "thai chilies",
+        "thai chilli pepper",
+        "thai red chili",
         "bird's eye chili",
         "bird eye chili",
         "birds eye chili",
@@ -797,10 +800,12 @@
       "name": "Parmesan",
       "aliases": [
         "parmesan",
+        "parmesan cheese",
         "parmigiano reggiano",
         "parmigiano",
         "grana padano",
-        "grated parmesan"
+        "grated parmesan",
+        "grated parmesan cheese"
       ],
       "aisle": "dairy",
       "default_purchase_unit": "oz",
@@ -811,6 +816,57 @@
         "g": 1,
         "oz": 28.35,
         "cup": 80
+      }
+    },
+    {
+      "id": "mushroom_shimeji",
+      "name": "Shimeji Mushrooms",
+      "aliases": [
+        "shimeji mushrooms",
+        "shimeji mushroom",
+        "shimeji",
+        "beech mushrooms",
+        "beech mushroom",
+        "brown beech mushroom",
+        "white beech mushroom",
+        "bunashimeji"
+      ],
+      "aisle": "asian_grocery",
+      "default_purchase_unit": "package",
+      "default_purchase_size": 150,
+      "is_staple": false,
+      "canonical_unit": "g",
+      "conversion_factors": {
+        "g": 1,
+        "oz": 28.35,
+        "package": 150,
+        "cup": 70
+      }
+    },
+    {
+      "id": "chili_paste_thai",
+      "name": "Thai Chili Paste",
+      "aliases": [
+        "thai chili paste",
+        "thai chilli paste",
+        "roasted chili paste",
+        "roasted chilli paste",
+        "chili jam",
+        "nam prik pao",
+        "nam prik pow",
+        "น้ำพริกเผา"
+      ],
+      "aisle": "asian_grocery",
+      "default_purchase_unit": "jar",
+      "default_purchase_size": 200,
+      "is_staple": false,
+      "canonical_unit": "ml",
+      "conversion_factors": {
+        "ml": 1,
+        "g": 1,
+        "tbsp": 14.787,
+        "tsp": 4.929,
+        "jar": 200
       }
     },
     {

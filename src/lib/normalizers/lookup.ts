@@ -100,6 +100,61 @@ function stripParentheticals(name: string): string {
   return name.replace(/\s*\([^)]*\)/g, "").trim();
 }
 
+// ─── Leading determiners / trailing purpose phrases ───────────────────────────
+
+/**
+ * Leading quantity words and determiners that recipe writers use but that don't
+ * change ingredient identity: "half a medium onion", "a pinch of salt".
+ */
+const LEADING_DETERMINER_RE =
+  /^(?:half\s+of\s+a|half\s+a|half|a\s+few|a\s+pinch\s+of|a\s+handful\s+of|some|few|a|an|the)\s+/i;
+
+/**
+ * Trailing purpose phrases (often with no preceding comma): "parmesan for serving",
+ * "cilantro for garnish", "butter, divided", "more as needed".
+ */
+const PURPOSE_PHRASE_RE =
+  /\s+(?:for\s+(?:serving|garnish|the\s+\w+|dusting|drizzling)|to\s+(?:serve|garnish|finish)|plus\s+more.*|divided|as\s+needed|if\s+desired|optional)\s*$/i;
+
+/** Strip leading determiners and trailing purpose phrases (looped). */
+function stripDeterminersAndPurpose(name: string): string {
+  let s = name.trim();
+  let prev = "";
+  while (s !== prev) {
+    prev = s;
+    s = s.replace(LEADING_DETERMINER_RE, "").replace(PURPOSE_PHRASE_RE, "").trim();
+  }
+  return s;
+}
+
+/**
+ * Produce singular candidates for the final word of a phrase. Recipe plurals are
+ * irregular ("chilies" → "chili", "leaves" → "leaf", "tomatoes" → "tomato"),
+ * so we try several rules and let the registry decide which one matches.
+ */
+function singularVariants(name: string): string[] {
+  const trimmed = name.trim();
+  if (!trimmed) return [];
+  const parts = trimmed.split(/\s+/);
+  const last = parts[parts.length - 1];
+  const prefix = parts.slice(0, -1).join(" ");
+  const join = (w: string) => (prefix ? `${prefix} ${w}` : w);
+
+  const wordVariants = new Set<string>();
+  if (last.endsWith("ies") && last.length > 3) {
+    wordVariants.add(last.slice(0, -3) + "y"); // berries → berry
+    wordVariants.add(last.slice(0, -3) + "i"); // chilies → chili
+    wordVariants.add(last.slice(0, -2)); // chilies → chilie (last resort)
+  }
+  if (last === "leaves") wordVariants.add("leaf");
+  if (last.endsWith("es") && last.length > 2) wordVariants.add(last.slice(0, -2)); // tomatoes → tomato
+  if (last.endsWith("s") && last.length > 1) wordVariants.add(last.slice(0, -1)); // onions → onion
+
+  return Array.from(wordVariants)
+    .filter((w) => w.length > 1)
+    .map(join);
+}
+
 // ─── Main lookup function ─────────────────────────────────────────────────────
 
 /**
@@ -112,7 +167,7 @@ export function lookupIngredient(
   rawName: string,
   cuisineSource: CuisineSource = "unknown"
 ): NormalizationResult {
-  const name = stripParentheticals(rawName);
+  const name = stripDeterminersAndPurpose(stripParentheticals(rawName));
 
   // Step 1: Soy sauce disambiguation
   const soySauceMatch = disambiguateSoySauce(name, cuisineSource);
@@ -156,33 +211,21 @@ export function lookupIngredient(
     }
   }
 
-  // Step 4: Strip trailing plural 's' and retry
-  const singular = name.replace(/s$/, "").trim();
-  if (singular !== name && singular.length > 2) {
-    const afterSingular = findByAlias(singular);
-    if (afterSingular) {
+  // Step 4: Try singular variants of the name (and of the adjective-stripped
+  // name) — handles irregular recipe plurals like "chilies"/"leaves"/"tomatoes".
+  for (const candidate of [
+    ...singularVariants(name),
+    ...singularVariants(stripped),
+  ]) {
+    if (candidate.length <= 2) continue;
+    const match = findByAlias(candidate);
+    if (match) {
       return {
-        canonical_id: afterSingular.id,
-        canonical: afterSingular,
+        canonical_id: match.id,
+        canonical: match,
         method: "lookup",
         confidence: 0.9,
       };
-    }
-  }
-
-  // Step 5: Strip adjective then also try singular
-  if (stripped !== name && stripped.endsWith("s")) {
-    const adjSingular = stripped.slice(0, -1).trim();
-    if (adjSingular.length > 2) {
-      const afterBoth = findByAlias(adjSingular);
-      if (afterBoth) {
-        return {
-          canonical_id: afterBoth.id,
-          canonical: afterBoth,
-          method: "lookup",
-          confidence: 0.9,
-        };
-      }
     }
   }
 
