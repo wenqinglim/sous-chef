@@ -136,6 +136,16 @@ describe("parseIngredient — name cleaning", () => {
     const r = parseIngredient("2 scallions, finely chopped");
     expect(r.name).toBe("scallions");
   });
+
+  test("comma inside parens does not truncate name", () => {
+    const r = parseIngredient("2 chicken thighs (bone-in, skin-on)");
+    expect(r.name).toBe("chicken thighs");
+  });
+
+  test("comma inside parens — oil with alternatives", () => {
+    const r = parseIngredient("2 tbsp oil (vegetable, canola, or peanut)");
+    expect(r.name).toBe("oil");
+  });
 });
 
 // ─── convertCrossFamily ───────────────────────────────────────────────────────

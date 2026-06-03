@@ -47,6 +47,12 @@ const STRIPPABLE_ADJECTIVES = [
   "peeled",
   "trimmed",
   "crushed",
+  // Size and quality descriptors
+  "small",
+  "medium",
+  "large",
+  "good",
+  "quality",
 ];
 
 const ADJECTIVE_RE = new RegExp(
@@ -130,10 +136,16 @@ export function lookupIngredient(
     };
   }
 
-  // Step 3: Strip leading strippable adjective and retry
-  const withoutAdj = name.replace(ADJECTIVE_RE, "").trim();
-  if (withoutAdj !== name && withoutAdj.length > 0) {
-    const afterAdj = findByAlias(withoutAdj);
+  // Step 3: Strip leading strippable adjectives in a loop and retry.
+  // Loop handles multi-adjective inputs like "good quality olive oil".
+  let stripped = name;
+  let prev = "";
+  while (stripped !== prev) {
+    prev = stripped;
+    stripped = stripped.replace(ADJECTIVE_RE, "").trim();
+  }
+  if (stripped !== name && stripped.length > 0) {
+    const afterAdj = findByAlias(stripped);
     if (afterAdj) {
       return {
         canonical_id: afterAdj.id,
@@ -159,8 +171,8 @@ export function lookupIngredient(
   }
 
   // Step 5: Strip adjective then also try singular
-  if (withoutAdj !== name && withoutAdj.endsWith("s")) {
-    const adjSingular = withoutAdj.slice(0, -1).trim();
+  if (stripped !== name && stripped.endsWith("s")) {
+    const adjSingular = stripped.slice(0, -1).trim();
     if (adjSingular.length > 2) {
       const afterBoth = findByAlias(adjSingular);
       if (afterBoth) {
