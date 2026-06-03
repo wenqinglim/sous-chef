@@ -379,12 +379,13 @@ export function cleanName(raw: string): string {
   // Strip prep notes after comma (specific patterns first)
   s = s.replace(PREP_NOTE_RE, "");
 
+  // Strip parenthetical content BEFORE comma-truncation so that a comma
+  // inside parens (e.g. "bone-in, skin-on") doesn't leave a dangling "("
+  s = s.replace(/\s*\([^)]*\)/g, "");
+
   // Strip any remaining content after a comma — in recipes, commas
   // almost always separate the ingredient name from prep context
   s = s.replace(/,.*$/, "");
-
-  // Strip any remaining parenthetical content
-  s = s.replace(/\s*\([^)]*\)/g, "");
 
   // Strip trailing punctuation (including dangling close-paren)
   s = s.replace(/[,;.–—\-\)]+$/, "");
