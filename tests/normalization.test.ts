@@ -312,3 +312,22 @@ describe("inferCuisineSource", () => {
     expect(inferCuisineSource("https://example.com/recipe")).toBe("western");
   });
 });
+
+// ─── Regression: lookup robustness for messy recipe names ─────────────────────
+
+describe("lookupIngredient — messy real-world names", () => {
+  const cases: Array<[string, string]> = [
+    ["half a medium onion", "onion_yellow"],
+    ["grated parmesan cheese for serving", "parmesan"],
+    ["shimeji mushrooms", "mushroom_shimeji"],
+    ["thai chili paste", "chili_paste_thai"],
+    ["thai chilies", "chili_thai"],
+    ["good quality whole peeled plum tomatoes", "tomato"],
+  ];
+  for (const [name, expectedId] of cases) {
+    test(`"${name}" → ${expectedId}`, () => {
+      const r = lookupIngredient(name, "asian");
+      expect(r.canonical_id).toBe(expectedId);
+    });
+  }
+});

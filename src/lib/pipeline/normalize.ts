@@ -35,6 +35,39 @@ export interface NormalizeResult {
  * Convert a quantity + unit into the ingredient's canonical base unit.
  * Returns the original quantity if conversion is not possible.
  */
+/**
+ * Reduce a parsed unit token to the singular form used as a conversion_factors
+ * key (e.g. "slices" → "slice", "leaves" → "leaf", "inches" → "inch").
+ */
+function singularizeUnit(unit: string): string {
+  const u = unit.toLowerCase().trim();
+  const irregular: Record<string, string> = { leaves: "leaf" };
+  if (irregular[u]) return irregular[u];
+  if (u.endsWith("ies")) return u.slice(0, -3) + "y";
+  if (u.endsWith("es") && (u.endsWith("ches") || u.endsWith("shes"))) {
+    return u.slice(0, -2);
+  }
+  if (u.endsWith("s") && u.length > 1) return u.slice(0, -1);
+  return u;
+}
+
+/**
+ * Look up an ingredient-specific conversion factor for a unit, trying the unit
+ * as written and its singular form. conversionFactors[unit] = canonical units
+ * per 1 of that unit.
+ */
+function factorFor(
+  unit: string,
+  conversionFactors: Record<string, number>
+): number | null {
+  const candidates = [unit, unit.toLowerCase().trim(), singularizeUnit(unit)];
+  for (const c of candidates) {
+    const f = conversionFactors[c];
+    if (f && f > 0) return f;
+  }
+  return null;
+}
+
 function toCanonicalQuantity(
   quantity: number,
   unit: string | null,
@@ -43,19 +76,26 @@ function toCanonicalQuantity(
 ): number {
   if (!unit) return quantity;
 
-  // Try direct conversion to canonical unit
+  // 1. Honor an ingredient-specific factor keyed by the ORIGINAL unit first.
+  //    This is what crosses families correctly — e.g. galangal "slice": 5 (g),
+  //    or flour "cup": 120 (g). Looking this up by the original unit (not the
+  //    base unit) is essential: a "slice" reduces to base "each", which has no
+  //    factor, so the "slice" entry would otherwise be ignored.
+  const directFactor = factorFor(unit, conversionFactors);
+  if (directFactor !== null) return quantity * directFactor;
+
+  // 2. Reduce to the base unit (ml/g/each).
   const baseResult = toBaseUnit(quantity, unit);
   if (!baseResult) return quantity;
 
   // If canonical unit matches the base unit, we're done
   if (baseResult.unit === canonicalUnit) return baseResult.value;
 
-  // Use ingredient-specific factor to cross unit families (e.g. g→each for tomato)
-  // conversionFactors[unit] = canonical_units per 1 of that unit
-  const factor = conversionFactors[baseResult.unit];
-  if (factor && factor > 0) return baseResult.value * factor;
+  // 3. Ingredient-specific factor keyed by the base unit (e.g. g→each tomato)
+  const baseFactor = conversionFactors[baseResult.unit];
+  if (baseFactor && baseFactor > 0) return baseResult.value * baseFactor;
 
-  // Try generic same-family conversion as last resort
+  // 4. Generic same-family conversion as last resort
   const converted = convert(baseResult.value, baseResult.unit, canonicalUnit);
   if (converted !== null) return converted;
 

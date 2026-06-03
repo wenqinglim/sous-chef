@@ -168,8 +168,8 @@ export function parseNumber(token: string): number | null {
   // Unicode fraction alone (single char)
   if (s in UNICODE_FRACTIONS) return UNICODE_FRACTIONS[s];
 
-  // Integer + unicode fraction: "1½"
-  const intUnicode = s.match(new RegExp(`^(\\d+)([${UF}])$`));
+  // Integer + unicode fraction, optional space: "1½" or "1 ½"
+  const intUnicode = s.match(new RegExp(`^(\\d+)\\s*([${UF}])$`));
   if (intUnicode) {
     const frac = UNICODE_FRACTIONS[intUnicode[2]];
     if (frac !== undefined) return parseInt(intUnicode[1], 10) + frac;
@@ -279,10 +279,13 @@ function extractLeadingNumber(
  * Returns midpoint as quantity, or null if no range.
  */
 function tryRange(s: string): { quantity: number; consumed: number } | null {
+  // A single numeric endpoint: mixed ("2 1/2"), int+unicode ("1½"/"1 ½"),
+  // bare unicode ("½"), fraction ("1/4"), or decimal/integer.
+  // Ordered specific → general so e.g. "1 ½" isn't truncated to "1".
+  const NUM = `(?:\\d+\\s+\\d+\\/\\d+|\\d+\\s*[${UF}]|[${UF}]|\\d+\\/\\d+|\\d+(?:[.,]\\d+)?)`;
   // Pattern: number + optional_space + separator + optional_space + number
   // The separator is -, –, —, or "to"
-  const rangeRe =
-    /^(\d+(?:[.,]\d+)?|\d+\/\d+|\d+\s+\d+\/\d+)\s*(?:-|–|—|to)\s*(\d+(?:[.,]\d+)?|\d+\/\d+)/;
+  const rangeRe = new RegExp(`^(${NUM})\\s*(?:-|–|—|to)\\s*(${NUM})`);
   const m = s.match(rangeRe);
   if (!m) return null;
 
@@ -332,12 +335,15 @@ export function parseIngredient(rawText: string): ParsedQuantity {
   // 4. Normalise whitespace
   text = text.replace(/\s+/g, " ").trim();
 
+  // For "to taste" / "as needed" items the quantity is meaningless, but the
+  // line may still carry a leading number ("1-3 chilies to taste") and unit
+  // that must be stripped so the name resolves cleanly. Strip the phrase here,
+  // then run the normal number/unit extraction below and null the quantity.
   if (isToTaste) {
-    // Strip the "to taste" phrase, clean the rest as the name
-    const nameRaw = text
+    text = text
       .replace(/\bto taste\b|\bas needed\b|\bto serve\b/gi, "")
+      .replace(/\s+/g, " ")
       .trim();
-    return { quantity: null, unit: null, name: cleanName(nameRaw) };
   }
 
   // 5. Try to extract a leading number
@@ -364,7 +370,8 @@ export function parseIngredient(rawText: string): ParsedQuantity {
   // 7. Clean the ingredient name
   const name = cleanName(rest);
 
-  return { quantity, unit, name };
+  // "to taste" / "as needed" → quantity is not meaningful
+  return { quantity: isToTaste ? null : quantity, unit, name };
 }
 
 /**

@@ -182,3 +182,24 @@ describe("parseIngredient — no quantity", () => {
     expect(r.name).toBe("fresh ginger");
   });
 });
+
+// ─── Regression: ranges with mixed/unicode endpoints ──────────────────────────
+
+describe("parser — range with int+unicode-fraction endpoint", () => {
+  test('parseNumber("1 ½") = 1.5', () => {
+    expect(parseNumber("1 ½")).toBeCloseTo(1.5);
+  });
+
+  test('"1 ½ - 2 Tbsp lime juice" → qty 1.75, tbsp, "lime juice"', () => {
+    const p = parseIngredient("1 ½ - 2 Tbsp lime juice");
+    expect(p.quantity).toBeCloseTo(1.75);
+    expect(p.unit).toBe("tbsp");
+    expect(p.name).toBe("lime juice");
+  });
+
+  test('"1-3 Thai chilies, to taste" → null qty, name "thai chilies"', () => {
+    const p = parseIngredient("1-3 Thai chilies, to taste");
+    expect(p.quantity).toBeNull();
+    expect(p.name).toBe("thai chilies");
+  });
+});
