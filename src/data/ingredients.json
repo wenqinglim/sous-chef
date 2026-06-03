@@ -213,7 +213,7 @@
         "new potato"
       ],
       "aisle": "produce",
-      "default_purchase_unit": "lb",
+      "default_purchase_unit": "g",
       "default_purchase_size": 1,
       "is_staple": false,
       "canonical_unit": "g",
@@ -622,7 +622,7 @@
         "香菇"
       ],
       "aisle": "produce",
-      "default_purchase_unit": "oz",
+      "default_purchase_unit": "g",
       "default_purchase_size": 1,
       "is_staple": false,
       "canonical_unit": "g",
@@ -646,7 +646,7 @@
         "white mushroom"
       ],
       "aisle": "produce",
-      "default_purchase_unit": "oz",
+      "default_purchase_unit": "g",
       "default_purchase_size": 1,
       "is_staple": false,
       "canonical_unit": "g",
@@ -736,7 +736,7 @@
         "room temperature butter"
       ],
       "aisle": "dairy",
-      "default_purchase_unit": "lb",
+      "default_purchase_unit": "g",
       "default_purchase_size": 1,
       "is_staple": false,
       "canonical_unit": "g",
@@ -808,7 +808,7 @@
         "grated parmesan cheese"
       ],
       "aisle": "dairy",
-      "default_purchase_unit": "oz",
+      "default_purchase_unit": "g",
       "default_purchase_size": 1,
       "is_staple": false,
       "canonical_unit": "g",
@@ -879,7 +879,7 @@
         "chicken thighs"
       ],
       "aisle": "meat",
-      "default_purchase_unit": "lb",
+      "default_purchase_unit": "g",
       "default_purchase_size": 1,
       "is_staple": false,
       "canonical_unit": "g",
@@ -901,7 +901,7 @@
         "chicken fillets"
       ],
       "aisle": "meat",
-      "default_purchase_unit": "lb",
+      "default_purchase_unit": "g",
       "default_purchase_size": 1,
       "is_staple": false,
       "canonical_unit": "g",
@@ -921,7 +921,7 @@
         "pork mince"
       ],
       "aisle": "meat",
-      "default_purchase_unit": "lb",
+      "default_purchase_unit": "g",
       "default_purchase_size": 1,
       "is_staple": false,
       "canonical_unit": "g",
@@ -942,7 +942,7 @@
         "hamburger meat"
       ],
       "aisle": "meat",
-      "default_purchase_unit": "lb",
+      "default_purchase_unit": "g",
       "default_purchase_size": 1,
       "is_staple": false,
       "canonical_unit": "g",
@@ -962,7 +962,7 @@
         "五花肉"
       ],
       "aisle": "meat",
-      "default_purchase_unit": "lb",
+      "default_purchase_unit": "g",
       "default_purchase_size": 1,
       "is_staple": false,
       "canonical_unit": "g",
@@ -986,7 +986,7 @@
         "medium shrimp"
       ],
       "aisle": "seafood",
-      "default_purchase_unit": "lb",
+      "default_purchase_unit": "g",
       "default_purchase_size": 1,
       "is_staple": false,
       "canonical_unit": "g",
@@ -1414,7 +1414,7 @@
         "กุ้งแห้ง"
       ],
       "aisle": "asian_grocery",
-      "default_purchase_unit": "oz",
+      "default_purchase_unit": "g",
       "default_purchase_size": 1,
       "is_staple": true,
       "canonical_unit": "g",
@@ -1497,8 +1497,8 @@
         "冬菇"
       ],
       "aisle": "asian_grocery",
-      "default_purchase_unit": "oz",
-      "default_purchase_size": 1,
+      "default_purchase_unit": "package",
+      "default_purchase_size": 20,
       "is_staple": false,
       "canonical_unit": "each",
       "conversion_factors": {
@@ -1518,7 +1518,7 @@
         "木耳"
       ],
       "aisle": "asian_grocery",
-      "default_purchase_unit": "oz",
+      "default_purchase_unit": "g",
       "default_purchase_size": 1,
       "is_staple": false,
       "canonical_unit": "g",
@@ -1692,7 +1692,7 @@
         "花椒"
       ],
       "aisle": "asian_grocery",
-      "default_purchase_unit": "oz",
+      "default_purchase_unit": "g",
       "default_purchase_size": 1,
       "is_staple": true,
       "canonical_unit": "g",
@@ -1731,8 +1731,8 @@
         "八角"
       ],
       "aisle": "asian_grocery",
-      "default_purchase_unit": "oz",
-      "default_purchase_size": 1,
+      "default_purchase_unit": "package",
+      "default_purchase_size": 20,
       "is_staple": true,
       "canonical_unit": "each",
       "conversion_factors": {
@@ -1771,7 +1771,7 @@
         "平菇"
       ],
       "aisle": "produce",
-      "default_purchase_unit": "oz",
+      "default_purchase_unit": "g",
       "default_purchase_size": 1,
       "is_staple": false,
       "canonical_unit": "g",
@@ -2633,8 +2633,8 @@
         "小红干辣椒"
       ],
       "aisle": "asian_grocery",
-      "default_purchase_unit": "oz",
-      "default_purchase_size": 1,
+      "default_purchase_unit": "package",
+      "default_purchase_size": 25,
       "is_staple": true,
       "canonical_unit": "each",
       "conversion_factors": {

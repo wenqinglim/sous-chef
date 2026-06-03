@@ -12,6 +12,7 @@ import { normalizeRecipe } from "@/lib/pipeline/normalize";
 import { aggregate } from "@/lib/pipeline/aggregate";
 import { planPurchases } from "@/lib/pipeline/purchase";
 import { derive } from "@/lib/derive";
+import { getAllIngredients } from "@/lib/registry/registry";
 import type { MealPlan, Recipe } from "@/types";
 import { v4 as uuidv4 } from "uuid";
 
@@ -391,5 +392,25 @@ describe("derive() — messy recipe resolves with registry only (no API key)", (
     // Spaghetti is sane (1 package for 500g), not 500 packages.
     const spaghetti = result.items.find((i) => i.canonical_id === "pasta_spaghetti")!;
     expect(spaghetti.purchase_quantity).toBe(1);
+
+    // Output units must be metric or cups/spoon — never imperial oz/lb,
+    // even though the source recipe specifies "14 oz" tomatoes and parmesan.
+    const imperial = new Set(["oz", "lb", "ounce", "ounces", "pound", "pounds"]);
+    for (const item of result.items) {
+      expect(imperial.has(item.purchase_unit.toLowerCase())).toBe(false);
+      expect(imperial.has(item.recipe_unit.toLowerCase())).toBe(false);
+    }
+  });
+});
+
+// ─── Regression: registry never emits imperial purchase units ─────────────────
+
+describe("registry purchase units are metric or cups/spoon (no oz/lb)", () => {
+  test("no ingredient uses oz/lb as its default_purchase_unit", () => {
+    const imperial = new Set(["oz", "lb", "ounce", "ounces", "pound", "pounds"]);
+    const offenders = getAllIngredients()
+      .filter((ing) => imperial.has(ing.default_purchase_unit.toLowerCase()))
+      .map((ing) => ing.id);
+    expect(offenders).toEqual([]);
   });
 });
