@@ -73,10 +73,15 @@ const ASIAN_CUISINE_DOMAINS = [
  * Infer cuisine source from recipe URL.
  * "asian" means Chinese/Thai/Korean/etc. cuisine sources where
  * bare "soy sauce" defaults to light soy.
+ *
+ * Known Asian-cuisine domains are matched as a fast path; any other domain
+ * returns "unknown" rather than assuming "western" — Sous-Chef now accepts
+ * arbitrary recipe sites, so the URL is no longer a reliable cuisine signal.
+ * Callers (e.g. schema.org's recipeCuisine field) can refine this later.
  */
 export function inferCuisineSource(url: string): CuisineSource {
   const lower = url.toLowerCase();
-  return ASIAN_CUISINE_DOMAINS.some((d) => lower.includes(d)) ? "asian" : "western";
+  return ASIAN_CUISINE_DOMAINS.some((d) => lower.includes(d)) ? "asian" : "unknown";
 }
 
 // ─── Soy sauce disambiguation ─────────────────────────────────────────────────
@@ -88,6 +93,8 @@ function disambiguateSoySauce(
   cuisineSource: CuisineSource
 ): CanonicalIngredient | null {
   if (!UNQUALIFIED_SOY_SAUCE_RE.test(name.trim())) return null;
+  // Asian sources → light soy; "western" and "unknown" both default to
+  // all-purpose (the safe choice when the cuisine is unconfirmed).
   const targetId =
     cuisineSource === "asian" ? "soy_sauce_light" : "soy_sauce_all_purpose";
   return findById(targetId);
