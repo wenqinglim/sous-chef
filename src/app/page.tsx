@@ -243,8 +243,8 @@ export default function HomePage() {
 
         {/* Footer */}
         <p className="text-center text-xs text-stone-400 mt-6">
-          Works best with RecipeTin Eats, Woks of Life, Hot Thai Kitchen, Made
-          With Lau
+          Works with most recipe sites — best results on sites with structured
+          recipe data.
         </p>
       </main>
     </div>

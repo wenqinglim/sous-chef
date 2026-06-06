@@ -15,15 +15,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { extractFromSchemaOrg, extractBodyText } from "@/lib/extractors/schema-org";
 import { extractWithLlm } from "@/lib/extractors/llm-fallback";
+import { safeFetch, BlockedUrlError } from "@/lib/extractors/safe-fetch";
 
 export const maxDuration = 60;
-
-const ALLOWED_HOSTS = [
-  "recipetineats.com",
-  "thewoksoflife.com",
-  "hot-thai-kitchen.com",
-  "madewithlau.com",
-];
 
 const RequestSchema = z.object({
   url: z.string().url(),
@@ -48,33 +42,22 @@ export async function POST(request: NextRequest) {
 
   const { url } = parsed.data;
 
-  const hostname = new URL(url).hostname.replace(/^www\./, "");
-  if (!ALLOWED_HOSTS.some((h) => hostname === h || hostname.endsWith("." + h))) {
-    return NextResponse.json({ error: "URL not from a supported recipe site" }, { status: 400 });
-  }
-
-  // Fetch the recipe page (server-side to bypass CORS).
+  // Fetch the recipe page server-side (bypasses CORS) through the SSRF-safe
+  // wrapper, since we now accept arbitrary user-supplied URLs.
   let html: string;
   try {
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        Accept: "text/html,application/xhtml+xml",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-      signal: AbortSignal.timeout(15000), // 15s timeout
-    });
-
-    if (!response.ok) {
+    const result = await safeFetch(url);
+    if (!result.ok) {
       return NextResponse.json(
-        { error: `Failed to fetch URL: HTTP ${response.status}` },
+        { error: `Failed to fetch URL: HTTP ${result.status}` },
         { status: 502 }
       );
     }
-
-    html = await response.text();
+    html = result.text;
   } catch (err) {
+    if (err instanceof BlockedUrlError) {
+      return NextResponse.json({ error: err.message }, { status: 400 });
+    }
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
       { error: `Failed to fetch URL: ${message}` },

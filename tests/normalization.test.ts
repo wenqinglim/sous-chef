@@ -273,6 +273,11 @@ describe("lookupIngredient — soy sauce disambiguation", () => {
     expect(r.canonical_id).toBe("soy_sauce_all_purpose");
   });
 
+  test("'soy sauce' on unknown cuisine → soy_sauce_all_purpose (safe default)", () => {
+    const r = lookupIngredient("soy sauce", "unknown");
+    expect(r.canonical_id).toBe("soy_sauce_all_purpose");
+  });
+
   test("'light soy sauce' always → soy_sauce_light regardless of cuisine", () => {
     expect(lookupIngredient("light soy sauce", "western").canonical_id).toBe(
       "soy_sauce_light"
@@ -304,12 +309,12 @@ describe("inferCuisineSource", () => {
     expect(inferCuisineSource("https://hot-thai-kitchen.com/pad-thai")).toBe("asian");
   });
 
-  test("recipetineats.com → western (RecipeTin is generic)", () => {
-    expect(inferCuisineSource("https://recipetineats.com/pasta")).toBe("western");
+  test("recipetineats.com → unknown (not a known Asian domain)", () => {
+    expect(inferCuisineSource("https://recipetineats.com/pasta")).toBe("unknown");
   });
 
-  test("unknown domain → western", () => {
-    expect(inferCuisineSource("https://example.com/recipe")).toBe("western");
+  test("arbitrary domain → unknown", () => {
+    expect(inferCuisineSource("https://example.com/recipe")).toBe("unknown");
   });
 });
 

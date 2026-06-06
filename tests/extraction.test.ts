@@ -67,9 +67,9 @@ describe("RecipeTin Eats — Beef Stir Fry", () => {
     }
   });
 
-  test("cuisine_source is western (recipetineats)", () => {
+  test("cuisine_source is unknown (recipetineats — not a known Asian domain)", () => {
     const { recipe } = extractFromSchemaOrg(html, url);
-    expect(recipe!.cuisine_source).toBe("western");
+    expect(recipe!.cuisine_source).toBe("unknown");
   });
 });
 
