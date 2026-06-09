@@ -9,6 +9,7 @@
 
 import type { PurchaseItem, UnresolvableIngredient } from "@/types";
 import CopyButton from "./CopyButton";
+import { roundUpDisplay } from "@/lib/units/format-number";
 
 interface Props {
   items: PurchaseItem[];
@@ -76,7 +77,7 @@ export default function GroceryList({
           {nonStaples.length} item{nonStaples.length !== 1 ? "s" : ""}
           {staples.length > 0 && ` + ${staples.length} pantry staple${staples.length !== 1 ? "s" : ""}`}
         </span>
-        <CopyButton items={items} grouped_by_aisle={grouped_by_aisle} />
+        <CopyButton items={items} unresolvable={unresolvable} grouped_by_aisle={grouped_by_aisle} />
       </div>
 
       {/* Grocery items by aisle */}
@@ -142,12 +143,21 @@ export default function GroceryList({
             ⚠️ Couldn&apos;t categorise — add manually
           </h3>
           <ul className="space-y-1">
-            {unresolvable.map((item, i) => (
-              <li key={i} className="text-sm text-stone-600">
-                {item.quantity !== null && `${item.quantity} ${item.unit ?? ""} `}
-                {item.name}
-              </li>
-            ))}
+            {unresolvable.map((item, i) => {
+              if (item.quantity === null) {
+                return (
+                  <li key={i} className="text-sm text-stone-600">
+                    — {item.name}{" "}
+                    <span className="text-xs text-stone-400">(check stock / to taste)</span>
+                  </li>
+                );
+              }
+              return (
+                <li key={i} className="text-sm text-stone-600">
+                  {roundUpDisplay(item.quantity)} {item.unit ?? ""} {item.name}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
