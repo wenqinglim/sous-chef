@@ -10,22 +10,23 @@
  */
 
 import { useState } from "react";
-import type { PurchaseItem } from "@/types";
+import type { PurchaseItem, UnresolvableIngredient } from "@/types";
 import { formatForKeep } from "@/lib/format";
 import type { DeriveResult } from "@/lib/format";
 
 interface Props {
   items: PurchaseItem[];
+  unresolvable: UnresolvableIngredient[];
   grouped_by_aisle: Record<string, PurchaseItem[]>;
 }
 
-export default function CopyButton({ items, grouped_by_aisle }: Props) {
+export default function CopyButton({ items, unresolvable, grouped_by_aisle }: Props) {
   const [copied, setCopied] = useState(false);
   const [showFallback, setShowFallback] = useState(false);
 
   const result: DeriveResult = {
     items,
-    unresolvable: [],
+    unresolvable,
     grouped_by_aisle,
   };
 

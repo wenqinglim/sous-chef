@@ -295,7 +295,7 @@
       ],
       "aisle": "produce",
       "default_purchase_unit": "bag",
-      "default_purchase_size": 1,
+      "default_purchase_size": 250,
       "is_staple": false,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -603,7 +603,7 @@
       ],
       "aisle": "produce",
       "default_purchase_unit": "bag",
-      "default_purchase_size": 1,
+      "default_purchase_size": 250,
       "is_staple": false,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -762,7 +762,7 @@
       ],
       "aisle": "dairy",
       "default_purchase_unit": "carton",
-      "default_purchase_size": 1,
+      "default_purchase_size": 1000,
       "is_staple": false,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -784,7 +784,7 @@
       ],
       "aisle": "dairy",
       "default_purchase_unit": "carton",
-      "default_purchase_size": 1,
+      "default_purchase_size": 300,
       "is_staple": false,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -808,8 +808,8 @@
         "grated parmesan cheese"
       ],
       "aisle": "dairy",
-      "default_purchase_unit": "g",
-      "default_purchase_size": 1,
+      "default_purchase_unit": "block",
+      "default_purchase_size": 200,
       "is_staple": false,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -986,15 +986,16 @@
         "medium shrimp"
       ],
       "aisle": "seafood",
-      "default_purchase_unit": "g",
+      "default_purchase_unit": "each",
       "default_purchase_size": 1,
       "is_staple": false,
-      "canonical_unit": "g",
+      "canonical_unit": "each",
       "conversion_factors": {
-        "g": 1,
-        "lb": 453.592,
-        "oz": 28.35,
-        "each": 15
+        "each": 1,
+        "g": 0.0667,
+        "oz": 0.945,
+        "lb": 15.12,
+        "kg": 66.7
       }
     },
     {
@@ -1009,7 +1010,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 500,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -1031,7 +1032,7 @@
       ],
       "aisle": "condiments",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 500,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -1053,7 +1054,7 @@
       ],
       "aisle": "condiments",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 250,
       "is_staple": false,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -1075,7 +1076,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 300,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -1096,7 +1097,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 300,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -1118,7 +1119,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 300,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -1141,7 +1142,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 250,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -1165,7 +1166,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 500,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -1188,7 +1189,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 500,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -1209,7 +1210,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 500,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -1229,7 +1230,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 300,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -1253,7 +1254,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "jar",
-      "default_purchase_size": 1,
+      "default_purchase_size": 226,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -1273,7 +1274,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "tub",
-      "default_purchase_size": 1,
+      "default_purchase_size": 500,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -1294,7 +1295,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "jar",
-      "default_purchase_size": 1,
+      "default_purchase_size": 250,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -1316,7 +1317,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "tub",
-      "default_purchase_size": 1,
+      "default_purchase_size": 500,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -1335,7 +1336,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "tub",
-      "default_purchase_size": 1,
+      "default_purchase_size": 500,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -1395,7 +1396,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "bag",
-      "default_purchase_size": 1,
+      "default_purchase_size": 200,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -1455,7 +1456,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "block",
-      "default_purchase_size": 1,
+      "default_purchase_size": 400,
       "is_staple": false,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -1477,7 +1478,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "block",
-      "default_purchase_size": 1,
+      "default_purchase_size": 350,
       "is_staple": false,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -1586,7 +1587,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "package",
-      "default_purchase_size": 1,
+      "default_purchase_size": 400,
       "is_staple": false,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -1609,7 +1610,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "package",
-      "default_purchase_size": 1,
+      "default_purchase_size": 200,
       "is_staple": false,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -1629,7 +1630,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "package",
-      "default_purchase_size": 1,
+      "default_purchase_size": 400,
       "is_staple": false,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -1650,7 +1651,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "block",
-      "default_purchase_size": 1,
+      "default_purchase_size": 200,
       "is_staple": true,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -1672,7 +1673,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "jar",
-      "default_purchase_size": 1,
+      "default_purchase_size": 150,
       "is_staple": true,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -1713,7 +1714,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "jar",
-      "default_purchase_size": 1,
+      "default_purchase_size": 50,
       "is_staple": true,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -1752,7 +1753,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 200,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -1793,7 +1794,7 @@
       ],
       "aisle": "pantry",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 500,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -1817,7 +1818,7 @@
       ],
       "aisle": "pantry",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 1000,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -1907,7 +1908,7 @@
       ],
       "aisle": "pantry",
       "default_purchase_unit": "box",
-      "default_purchase_size": 1,
+      "default_purchase_size": 500,
       "is_staple": true,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -1928,7 +1929,7 @@
       ],
       "aisle": "pantry",
       "default_purchase_unit": "jar",
-      "default_purchase_size": 1,
+      "default_purchase_size": 50,
       "is_staple": true,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -1948,7 +1949,7 @@
       ],
       "aisle": "pantry",
       "default_purchase_unit": "jar",
-      "default_purchase_size": 1,
+      "default_purchase_size": 50,
       "is_staple": true,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -1989,7 +1990,7 @@
       ],
       "aisle": "pantry",
       "default_purchase_unit": "box",
-      "default_purchase_size": 1,
+      "default_purchase_size": 200,
       "is_staple": true,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -2005,7 +2006,7 @@
       ],
       "aisle": "pantry",
       "default_purchase_unit": "can",
-      "default_purchase_size": 1,
+      "default_purchase_size": 100,
       "is_staple": true,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -2024,7 +2025,7 @@
       ],
       "aisle": "pantry",
       "default_purchase_unit": "jar",
-      "default_purchase_size": 1,
+      "default_purchase_size": 50,
       "is_staple": true,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -2044,7 +2045,7 @@
       ],
       "aisle": "pantry",
       "default_purchase_unit": "jar",
-      "default_purchase_size": 1,
+      "default_purchase_size": 50,
       "is_staple": true,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -2064,7 +2065,7 @@
       ],
       "aisle": "pantry",
       "default_purchase_unit": "jar",
-      "default_purchase_size": 1,
+      "default_purchase_size": 50,
       "is_staple": true,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -2084,7 +2085,7 @@
       ],
       "aisle": "pantry",
       "default_purchase_unit": "jar",
-      "default_purchase_size": 1,
+      "default_purchase_size": 50,
       "is_staple": true,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -2102,7 +2103,7 @@
       ],
       "aisle": "pantry",
       "default_purchase_unit": "jar",
-      "default_purchase_size": 1,
+      "default_purchase_size": 50,
       "is_staple": true,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -2120,7 +2121,7 @@
       ],
       "aisle": "pantry",
       "default_purchase_unit": "jar",
-      "default_purchase_size": 1,
+      "default_purchase_size": 50,
       "is_staple": true,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -2201,7 +2202,7 @@
       ],
       "aisle": "pantry",
       "default_purchase_unit": "can",
-      "default_purchase_size": 1,
+      "default_purchase_size": 140,
       "is_staple": false,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -2220,7 +2221,7 @@
       ],
       "aisle": "pantry",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 500,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -2239,7 +2240,7 @@
       ],
       "aisle": "pantry",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 500,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -2257,7 +2258,7 @@
       ],
       "aisle": "pantry",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 500,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -2275,7 +2276,7 @@
       ],
       "aisle": "pantry",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 250,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -2295,7 +2296,7 @@
       ],
       "aisle": "condiments",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 290,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -2316,7 +2317,7 @@
       ],
       "aisle": "condiments",
       "default_purchase_unit": "jar",
-      "default_purchase_size": 1,
+      "default_purchase_size": 200,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -2336,7 +2337,7 @@
       ],
       "aisle": "condiments",
       "default_purchase_unit": "jar",
-      "default_purchase_size": 1,
+      "default_purchase_size": 400,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -2356,7 +2357,7 @@
       ],
       "aisle": "condiments",
       "default_purchase_unit": "jar",
-      "default_purchase_size": 1,
+      "default_purchase_size": 300,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -2376,7 +2377,7 @@
       ],
       "aisle": "pantry",
       "default_purchase_unit": "jar",
-      "default_purchase_size": 1,
+      "default_purchase_size": 400,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -2394,7 +2395,7 @@
       ],
       "aisle": "condiments",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 250,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -2411,7 +2412,7 @@
       ],
       "aisle": "pantry",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 500,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -2475,7 +2476,7 @@
       ],
       "aisle": "pantry",
       "default_purchase_unit": "package",
-      "default_purchase_size": 1,
+      "default_purchase_size": 400,
       "is_staple": false,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -2535,7 +2536,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "bag",
-      "default_purchase_size": 1,
+      "default_purchase_size": 250,
       "is_staple": true,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -2556,7 +2557,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "bag",
-      "default_purchase_size": 1,
+      "default_purchase_size": 400,
       "is_staple": true,
       "canonical_unit": "g",
       "conversion_factors": {
@@ -2652,7 +2653,7 @@
       ],
       "aisle": "asian_grocery",
       "default_purchase_unit": "jar",
-      "default_purchase_size": 1,
+      "default_purchase_size": 200,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -2674,7 +2675,7 @@
       ],
       "aisle": "other",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 1000,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -2696,7 +2697,7 @@
       ],
       "aisle": "condiments",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 500,
       "is_staple": true,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -2719,7 +2720,7 @@
       ],
       "aisle": "condiments",
       "default_purchase_unit": "bottle",
-      "default_purchase_size": 1,
+      "default_purchase_size": 250,
       "is_staple": false,
       "canonical_unit": "ml",
       "conversion_factors": {
@@ -2727,6 +2728,98 @@
         "tbsp": 14.787,
         "tsp": 4.929,
         "cup": 236.588
+      }
+    },
+    {
+      "id": "duck_leg",
+      "name": "Duck Legs",
+      "aliases": [
+        "duck leg",
+        "duck legs",
+        "duck maryland",
+        "duck marylands",
+        "duck leg quarter"
+      ],
+      "aisle": "meat",
+      "default_purchase_unit": "each",
+      "default_purchase_size": 1,
+      "is_staple": false,
+      "canonical_unit": "each",
+      "conversion_factors": {
+        "each": 1,
+        "g": 0.005,
+        "kg": 5.0,
+        "lb": 2.27
+      }
+    },
+    {
+      "id": "duck_fat",
+      "name": "Duck Fat",
+      "aliases": [
+        "duck fat",
+        "rendered duck fat"
+      ],
+      "aisle": "meat",
+      "default_purchase_unit": "jar",
+      "default_purchase_size": 320,
+      "is_staple": false,
+      "canonical_unit": "g",
+      "conversion_factors": {
+        "g": 1,
+        "kg": 1000,
+        "lb": 453.592,
+        "oz": 28.35,
+        "cup": 208,
+        "tbsp": 13
+      }
+    },
+    {
+      "id": "bay_leaf",
+      "name": "Bay Leaves",
+      "aliases": [
+        "bay leaf",
+        "bay leaves",
+        "dried bay leaf",
+        "dried bay leaves",
+        "fresh bay leaf",
+        "fresh bay leaves",
+        "laurel leaf",
+        "laurel leaves"
+      ],
+      "aisle": "pantry",
+      "default_purchase_unit": "jar",
+      "default_purchase_size": 30,
+      "is_staple": true,
+      "canonical_unit": "each",
+      "conversion_factors": {
+        "each": 1,
+        "leaf": 1,
+        "leaves": 1
+      }
+    },
+    {
+      "id": "thyme",
+      "name": "Thyme",
+      "aliases": [
+        "thyme",
+        "fresh thyme",
+        "thyme sprigs",
+        "sprigs thyme",
+        "sprigs of thyme",
+        "fresh thyme sprigs",
+        "dried thyme"
+      ],
+      "aisle": "produce",
+      "default_purchase_unit": "bunch",
+      "default_purchase_size": 20,
+      "is_staple": false,
+      "canonical_unit": "each",
+      "conversion_factors": {
+        "each": 1,
+        "sprig": 1,
+        "sprigs": 1,
+        "tbsp": 3,
+        "tsp": 1
       }
     }
   ]

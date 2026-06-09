@@ -7,6 +7,7 @@
  */
 
 import type { PurchaseItem, UnresolvableIngredient } from "@/types";
+import { roundUpDisplay } from "@/lib/units/format-number";
 
 export interface DeriveResult {
   items: PurchaseItem[];
@@ -80,6 +81,20 @@ export function formatForKeep(result: DeriveResult, title?: string): string {
       a.display_name.localeCompare(b.display_name)
     )) {
       lines.push(`  — ${item.display_name}`);
+    }
+  }
+
+  if (result.unresolvable.length > 0) {
+    lines.push("");
+    lines.push("ADD MANUALLY");
+    for (const u of result.unresolvable) {
+      if (u.quantity === null) {
+        lines.push(`  — ${u.name} (check stock / to taste)`);
+      } else {
+        const qty = roundUpDisplay(u.quantity);
+        const unit = u.unit ? ` ${u.unit}` : "";
+        lines.push(`  ${qty}${unit}  ${u.name}`);
+      }
     }
   }
 

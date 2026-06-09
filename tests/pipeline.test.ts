@@ -13,7 +13,9 @@ import { aggregate } from "@/lib/pipeline/aggregate";
 import { planPurchases } from "@/lib/pipeline/purchase";
 import { derive } from "@/lib/derive";
 import { getAllIngredients } from "@/lib/registry/registry";
-import type { MealPlan, Recipe } from "@/types";
+import { formatForKeep } from "@/lib/format";
+import { roundUpDisplay } from "@/lib/units/format-number";
+import type { MealPlan, Recipe, UnresolvableIngredient } from "@/types";
 import { v4 as uuidv4 } from "uuid";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -412,5 +414,224 @@ describe("registry purchase units are metric or cups/spoon (no oz/lb)", () => {
       .filter((ing) => imperial.has(ing.default_purchase_unit.toLowerCase()))
       .map((ing) => ing.id);
     expect(offenders).toEqual([]);
+  });
+});
+
+// ─── Guardrail: opaque purchase units never divide by size 1 ─────────────────
+
+describe("planPurchases — opaque-unit guardrail prevents absurd counts", () => {
+  test("lime_juice: 52 ml → 1 bottle (not 52)", () => {
+    const items = planPurchases([
+      { canonical_id: "lime_juice", total_quantity: 52.4, canonical_unit: "ml", contributing_recipe_ids: ["r1"] },
+    ]);
+    expect(items[0].purchase_unit).toBe("bottle");
+    expect(items[0].purchase_quantity).toBe(1);
+  });
+
+  test("lime_juice: 600 ml → 3 bottles (scales correctly)", () => {
+    const items = planPurchases([
+      { canonical_id: "lime_juice", total_quantity: 600, canonical_unit: "ml", contributing_recipe_ids: ["r1"] },
+    ]);
+    expect(items[0].purchase_quantity).toBe(Math.ceil(600 / 250));
+  });
+
+  test("doubanjiang: 45 ml → 1 jar (not 45)", () => {
+    const items = planPurchases([
+      { canonical_id: "doubanjiang", total_quantity: 45, canonical_unit: "ml", contributing_recipe_ids: ["r1"] },
+    ]);
+    expect(items[0].purchase_quantity).toBe(1);
+  });
+
+  test("gochujang: 30 ml → 1 tub (not 30)", () => {
+    const items = planPurchases([
+      { canonical_id: "gochujang", total_quantity: 30, canonical_unit: "ml", contributing_recipe_ids: ["r1"] },
+    ]);
+    expect(items[0].purchase_quantity).toBe(1);
+  });
+
+  test("chili_oil: 15 ml → 1 bottle (not 15)", () => {
+    const items = planPurchases([
+      { canonical_id: "chili_oil", total_quantity: 15, canonical_unit: "ml", contributing_recipe_ids: ["r1"] },
+    ]);
+    expect(items[0].purchase_quantity).toBe(1);
+  });
+
+  test("shrimp_paste: 20 g → 1 block (not 20)", () => {
+    const items = planPurchases([
+      { canonical_id: "shrimp_paste", total_quantity: 20, canonical_unit: "g", contributing_recipe_ids: ["r1"] },
+    ]);
+    expect(items[0].purchase_quantity).toBe(1);
+  });
+
+  // Anti-regression: realistic purchase_size > 1 entries must be unchanged
+  test("coconut_milk: 680 ml → 2 cans (existing behaviour preserved)", () => {
+    const items = planPurchases([
+      { canonical_id: "coconut_milk", total_quantity: 680, canonical_unit: "ml", contributing_recipe_ids: ["r1"] },
+    ]);
+    expect(items[0].purchase_unit).toBe("can");
+    expect(items[0].purchase_quantity).toBe(2);
+  });
+
+  test("pasta_spaghetti: 500 g → 1 package (existing behaviour preserved)", () => {
+    const items = planPurchases([
+      { canonical_id: "pasta_spaghetti", total_quantity: 500, canonical_unit: "g", contributing_recipe_ids: ["r1"] },
+    ]);
+    expect(items[0].purchase_quantity).toBe(1);
+  });
+});
+
+// ─── Shrimp: natural count unit ───────────────────────────────────────────────
+
+describe("shrimp — natural count unit", () => {
+  test("'12-15 medium shrimp' normalises to each, rounds up whole for purchase", async () => {
+    const recipe: Recipe = {
+      id: "r1", url: "https://example.com", title: "T", base_servings: 2,
+      parsed_at: new Date().toISOString(), cuisine_source: "unknown",
+      ingredients: [{ recipe_id: "r1", raw_text: "12-15 medium shrimp", quantity: null, unit: null, name: "", canonical_id: null }],
+    };
+    const { normalized } = await normalizeRecipe(recipe, 2);
+    const s = normalized.find((n) => n.canonical_id === "shrimp")!;
+    expect(s).toBeDefined();
+    expect(s.canonical_unit).toBe("each");
+    // midpoint 13.5, scaled ×1 → canonical 13.5
+    expect(s.quantity).toBeCloseTo(13.5);
+
+    const items = planPurchases(aggregate(normalized));
+    const item = items.find((i) => i.canonical_id === "shrimp")!;
+    expect(item.purchase_unit).toBe("each");
+    expect(Number.isInteger(item.purchase_quantity)).toBe(true);
+    expect(item.purchase_quantity).toBe(14); // ceil(13.5)
+  });
+});
+
+// ─── New registry entries resolve without LLM ─────────────────────────────────
+
+describe("new registry entries — duck, bay leaf, thyme", () => {
+  function makeRecipe(ingredients: string[]): Recipe {
+    return {
+      id: "duck1", url: "https://example.com", title: "Duck Confit", base_servings: 3,
+      parsed_at: new Date().toISOString(), cuisine_source: "western",
+      ingredients: ingredients.map((raw_text) => ({
+        recipe_id: "duck1", raw_text, quantity: null, unit: null, name: "", canonical_id: null,
+      })),
+    };
+  }
+
+  test("duck legs resolve to duck_leg (each), purchase_quantity is whole integer", async () => {
+    const { normalized, unresolvable } = await normalizeRecipe(makeRecipe(["4 duck legs"]), 4);
+    expect(unresolvable.find((u) => u.name.includes("duck leg"))).toBeUndefined();
+    const item = normalized.find((n) => n.canonical_id === "duck_leg")!;
+    expect(item).toBeDefined();
+    expect(item.canonical_unit).toBe("each");
+    const purchased = planPurchases(aggregate(normalized));
+    const p = purchased.find((i) => i.canonical_id === "duck_leg")!;
+    expect(Number.isInteger(p.purchase_quantity)).toBe(true);
+  });
+
+  test("duck fat resolves to duck_fat, 1 kg → 4 jars (ceil(1000/320))", async () => {
+    const { normalized, unresolvable } = await normalizeRecipe(makeRecipe(["1 kg duck fat (see Kitchen Notes)"]), 3);
+    expect(unresolvable.find((u) => u.name.includes("duck fat"))).toBeUndefined();
+    const item = normalized.find((n) => n.canonical_id === "duck_fat")!;
+    expect(item).toBeDefined();
+    const purchased = planPurchases(aggregate(normalized));
+    const p = purchased.find((i) => i.canonical_id === "duck_fat")!;
+    expect(p.purchase_unit).toBe("jar");
+    expect(p.purchase_quantity).toBe(Math.ceil(1000 / 320));
+  });
+
+  test("bay leaves resolve to bay_leaf, is_staple true (check-stock bucket)", async () => {
+    const { normalized, unresolvable } = await normalizeRecipe(makeRecipe(["2 bay leaves"]), 3);
+    expect(unresolvable.find((u) => u.name.includes("bay"))).toBeUndefined();
+    expect(normalized.find((n) => n.canonical_id === "bay_leaf")).toBeDefined();
+    const purchased = planPurchases(aggregate(normalized));
+    const p = purchased.find((i) => i.canonical_id === "bay_leaf")!;
+    expect(p.is_staple).toBe(true);
+  });
+
+  test("thyme sprigs resolve to thyme, purchase_quantity is 1 bunch", async () => {
+    const { normalized, unresolvable } = await normalizeRecipe(makeRecipe(["4-6 sprigs thyme"]), 3);
+    expect(unresolvable.find((u) => u.name.includes("thyme"))).toBeUndefined();
+    expect(normalized.find((n) => n.canonical_id === "thyme")).toBeDefined();
+    const purchased = planPurchases(aggregate(normalized));
+    const p = purchased.find((i) => i.canonical_id === "thyme")!;
+    expect(p.purchase_unit).toBe("bunch");
+    expect(p.purchase_quantity).toBe(1);
+  });
+});
+
+// ─── roundUpDisplay helper ─────────────────────────────────────────────────────
+
+describe("roundUpDisplay", () => {
+  test.each([
+    [5.3333, 6],
+    [2.6666, 3],
+    [1.0,   1],
+    [0.1,   1],
+    [0,     0],
+    [-1,    0],
+    [Infinity, 0],
+    [NaN,   0],
+  ])("roundUpDisplay(%s) === %s", (input, expected) => {
+    expect(roundUpDisplay(input)).toBe(expected);
+  });
+});
+
+// ─── Registry validation: no opaque ml/g entry ships with purchase_size <= 1 ──
+
+describe("registry validation — opaque units have realistic purchase sizes", () => {
+  test("no ml/g ingredient has an opaque purchase unit with size <= 1", () => {
+    const opaque = new Set([
+      "bottle","jar","tub","can","tin","package","packet","pkg",
+      "block","bag","carton","box","tube",
+    ]);
+    const offenders = getAllIngredients()
+      .filter(
+        (i) =>
+          opaque.has(i.default_purchase_unit) &&
+          i.default_purchase_size <= 1 &&
+          (i.canonical_unit === "ml" || i.canonical_unit === "g")
+      )
+      .map((i) => i.id);
+    expect(offenders).toEqual([]);
+  });
+});
+
+// ─── formatForKeep includes unresolvable items ────────────────────────────────
+
+describe("formatForKeep — unresolvable items in copy output", () => {
+  const baseResult = {
+    items: [],
+    grouped_by_aisle: {},
+    unresolvable: [] as UnresolvableIngredient[],
+  };
+
+  test("unresolvable items appear under ADD MANUALLY", () => {
+    const result = {
+      ...baseResult,
+      unresolvable: [
+        { recipe_id: "r1", raw_text: "", name: "duck legs", quantity: 5.333, unit: null },
+      ] as UnresolvableIngredient[],
+    };
+    const text = formatForKeep(result);
+    expect(text).toContain("ADD MANUALLY");
+    expect(text).toContain("6"); // ceil(5.333)
+    expect(text).toContain("duck legs");
+  });
+
+  test("null-quantity unresolvable renders as check-stock note", () => {
+    const result = {
+      ...baseResult,
+      unresolvable: [
+        { recipe_id: "r1", raw_text: "", name: "fresh herbs", quantity: null, unit: null },
+      ] as UnresolvableIngredient[],
+    };
+    const text = formatForKeep(result);
+    expect(text).toContain("check stock / to taste");
+    expect(text).toContain("fresh herbs");
+  });
+
+  test("empty unresolvable produces no ADD MANUALLY section", () => {
+    const text = formatForKeep(baseResult);
+    expect(text).not.toContain("ADD MANUALLY");
   });
 });
