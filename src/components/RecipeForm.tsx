@@ -12,6 +12,7 @@
 import { useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { Recipe } from "@/types";
+import RecipeDetail from "@/components/RecipeDetail";
 
 interface RecipeRow {
   url: string;
@@ -164,6 +165,7 @@ export default function RecipeForm({ rows, onRowsChange }: Props) {
                       {row.recipe.ingredients.length} ingredients · base{" "}
                       {row.recipe.base_servings} servings
                     </div>
+                    <RecipeDetail recipe={row.recipe} />
                   </div>
                 )}
                 {!row.loading && !row.error && !row.recipe && (

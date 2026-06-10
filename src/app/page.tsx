@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import RecipeForm, { type RecipeRow } from "@/components/RecipeForm";
+import RecipeLibrary from "@/components/RecipeLibrary";
 import IngredientsReview from "@/components/IngredientsReview";
 import GroceryList from "@/components/GroceryList";
 import {
@@ -191,6 +192,7 @@ export default function HomePage() {
                 Add your recipes
               </h2>
               <RecipeForm rows={rows} onRowsChange={setRows} />
+              <RecipeLibrary rows={rows} onRowsChange={setRows} />
 
               {canProceedToReview && (
                 <div className="mt-4 pt-4 border-t border-stone-100">
