@@ -1,0 +1,28 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Saved recipe library. Ingredients/instructions are JSONB documents because
+// the app only ever consumes whole Recipe objects (derive() is a pure function
+// over them); nothing queries inside the JSON.
+model Recipe {
+  id            String   @id // app-generated uuid from the extractor
+  url           String   @unique // dedupe/upsert key; becomes @@unique([url, userId]) when multi-user lands
+  title         String
+  baseServings  Int      @map("base_servings")
+  cuisineSource String   @map("cuisine_source") // "asian" | "western" | "unknown"
+  ingredients   Json // RecipeIngredient[]
+  instructions  Json // string[]
+  parsedAt      DateTime @map("parsed_at")
+  userId        String?  @map("user_id") // nullable until multi-user support
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("recipes")
+}
