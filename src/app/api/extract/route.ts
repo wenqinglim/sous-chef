@@ -28,7 +28,8 @@ async function saveExtracted(recipe: Recipe) {
   try {
     const saved = await upsertRecipeByUrl(recipe);
     return NextResponse.json({ recipe: saved, saved: true });
-  } catch {
+  } catch (err) {
+    console.error(`Failed to save recipe to library (${recipe.url}):`, err);
     return NextResponse.json({ recipe, saved: false });
   }
 }

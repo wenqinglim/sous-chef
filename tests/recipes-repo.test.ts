@@ -6,6 +6,7 @@
  * flows (upsert id retention, list summaries, delete) run against the mock.
  */
 
+import { Prisma } from "@prisma/client";
 import type { Recipe } from "@/types";
 
 jest.mock("@/lib/db/client", () => ({
@@ -258,8 +259,18 @@ describe("deleteRecipe", () => {
     expect(await deleteRecipe("row-id")).toBe(true);
   });
 
-  test("returns false when the record does not exist", async () => {
-    mockRecipe.delete.mockRejectedValue(new Error("P2025"));
+  test("returns false when the record does not exist (P2025)", async () => {
+    mockRecipe.delete.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Record not found", {
+        code: "P2025",
+        clientVersion: "6.0.0",
+      })
+    );
     expect(await deleteRecipe("missing")).toBe(false);
+  });
+
+  test("propagates non-P2025 errors (connection failures are not 404s)", async () => {
+    mockRecipe.delete.mockRejectedValue(new Error("connection refused"));
+    await expect(deleteRecipe("row-id")).rejects.toThrow("connection refused");
   });
 });

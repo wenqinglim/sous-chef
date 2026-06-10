@@ -6,7 +6,8 @@
  * no other module needs to change.
  */
 
-import type { Prisma, Recipe as RecipeRow } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { Recipe as RecipeRow } from "@prisma/client";
 import type { CuisineSource, Recipe, RecipeIngredient } from "@/types";
 import { prisma } from "./client";
 
@@ -73,6 +74,7 @@ export function normalizeUrl(url: string): string {
     const u = new URL(url);
     u.hash = "";
     for (const key of [...u.searchParams.keys()]) {
+      // Prefix-matches the tracking params; "ref" alone is exact ($)
       if (/^(utm_|fbclid|gclid|mc_cid|mc_eid|ref$)/i.test(key)) {
         u.searchParams.delete(key);
       }
@@ -90,8 +92,9 @@ function toRowData(recipe: Recipe, url: string) {
     title: recipe.title,
     baseServings: recipe.base_servings,
     cuisineSource: recipe.cuisine_source,
-    ingredients: recipe.ingredients as unknown as Prisma.InputJsonValue,
-    instructions: recipe.instructions as unknown as Prisma.InputJsonValue,
+    // Columns are NOT NULL — default rather than fail on a partial Recipe
+    ingredients: (recipe.ingredients ?? []) as unknown as Prisma.InputJsonValue,
+    instructions: (recipe.instructions ?? []) as unknown as Prisma.InputJsonValue,
     parsedAt: new Date(recipe.parsed_at),
   };
 }
@@ -99,6 +102,9 @@ function toRowData(recipe: Recipe, url: string) {
 // ─── Repository functions ─────────────────────────────────────────────────────
 
 export async function listRecipes(): Promise<RecipeSummary[]> {
+  // Fetches whole rows (incl. JSONB) to compute the counts — Prisma can't
+  // take jsonb_array_length without raw SQL. Fine at personal-library scale;
+  // revisit with $queryRaw if libraries grow into the hundreds.
   const rows = await prisma.recipe.findMany({
     orderBy: { createdAt: "desc" },
   });
@@ -149,8 +155,15 @@ export async function deleteRecipe(id: string): Promise<boolean> {
   try {
     await prisma.recipe.delete({ where: { id } });
     return true;
-  } catch {
-    // P2025 — record not found
-    return false;
+  } catch (err) {
+    // P2025 = record not found → false; anything else (connection errors,
+    // timeouts) must propagate so the route returns 500, not a bogus 404
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2025"
+    ) {
+      return false;
+    }
+    throw err;
   }
 }
