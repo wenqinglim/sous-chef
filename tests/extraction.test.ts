@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import {
   extractFromSchemaOrg,
+  parseInstructions,
   parseServings,
 } from "@/lib/extractors/schema-org";
 
@@ -31,6 +32,121 @@ describe("parseServings", () => {
   test("undefined → null", () => expect(parseServings(undefined)).toBeNull());
   test("'no number here' → null", () =>
     expect(parseServings("no number here")).toBeNull());
+});
+
+// ─── parseInstructions ────────────────────────────────────────────────────────
+
+describe("parseInstructions", () => {
+  test("plain string array used directly", () => {
+    expect(parseInstructions(["Boil water.", "Add pasta."])).toEqual([
+      "Boil water.",
+      "Add pasta.",
+    ]);
+  });
+
+  test("HowToStep objects → text", () => {
+    expect(
+      parseInstructions([
+        { "@type": "HowToStep", text: "Chop the onion." },
+        { "@type": "HowToStep", text: "Fry until golden." },
+      ])
+    ).toEqual(["Chop the onion.", "Fry until golden."]);
+  });
+
+  test("HowToStep without text falls back to name", () => {
+    expect(
+      parseInstructions([{ "@type": "HowToStep", name: "Preheat the oven." }])
+    ).toEqual(["Preheat the oven."]);
+  });
+
+  test("HowToSection with itemListElement is flattened", () => {
+    expect(
+      parseInstructions([
+        {
+          "@type": "HowToSection",
+          name: "For the sauce",
+          itemListElement: [
+            { "@type": "HowToStep", text: "Whisk the sauce ingredients." },
+          ],
+        },
+        {
+          "@type": "HowToSection",
+          name: "For the stir fry",
+          itemListElement: [
+            { "@type": "HowToStep", text: "Stir fry the beef." },
+            { "@type": "HowToStep", text: "Add the sauce." },
+          ],
+        },
+      ])
+    ).toEqual([
+      "Whisk the sauce ingredients.",
+      "Stir fry the beef.",
+      "Add the sauce.",
+    ]);
+  });
+
+  test("nested sections flatten recursively", () => {
+    expect(
+      parseInstructions([
+        {
+          "@type": "HowToSection",
+          itemListElement: [
+            {
+              "@type": "HowToSection",
+              itemListElement: [{ "@type": "HowToStep", text: "Inner step." }],
+            },
+          ],
+        },
+      ])
+    ).toEqual(["Inner step."]);
+  });
+
+  test("single plain string split on newlines", () => {
+    expect(parseInstructions("Step one.\nStep two.\n\nStep three.")).toEqual([
+      "Step one.",
+      "Step two.",
+      "Step three.",
+    ]);
+  });
+
+  test("HTML tags stripped from step text", () => {
+    expect(
+      parseInstructions([{ "@type": "HowToStep", text: "<p>Mix <b>well</b>.</p>" }])
+    ).toEqual(["Mix well."]);
+  });
+
+  test("undefined/null → []", () => {
+    expect(parseInstructions(undefined)).toEqual([]);
+    expect(parseInstructions(null)).toEqual([]);
+  });
+
+  test("lone unwrapped HowToStep object", () => {
+    expect(
+      parseInstructions({ "@type": "HowToStep", text: "Only step." })
+    ).toEqual(["Only step."]);
+  });
+
+  test("lone unwrapped HowToSection object", () => {
+    expect(
+      parseInstructions({
+        "@type": "HowToSection",
+        itemListElement: [
+          { "@type": "HowToStep", text: "First." },
+          { "@type": "HowToStep", text: "Second." },
+        ],
+      })
+    ).toEqual(["First.", "Second."]);
+  });
+
+  test("malformed entries skipped, valid ones kept", () => {
+    expect(
+      parseInstructions([
+        { "@type": "HowToStep" }, // no text or name
+        "",
+        { "@type": "HowToStep", text: "Real step." },
+      ])
+    ).toEqual(["Real step."]);
+  });
 });
 
 // ─── RecipeTin Eats fixture ───────────────────────────────────────────────────
@@ -71,6 +187,14 @@ describe("RecipeTin Eats — Beef Stir Fry", () => {
     const { recipe } = extractFromSchemaOrg(html, url);
     expect(recipe!.cuisine_source).toBe("unknown");
   });
+
+  test("extracts both HowToStep instructions", () => {
+    const { recipe } = extractFromSchemaOrg(html, url);
+    expect(recipe!.instructions).toEqual([
+      "Marinate beef with soy sauce and cornstarch for 15 minutes.",
+      "Heat oil in wok over high heat. Stir fry beef until browned.",
+    ]);
+  });
 });
 
 // ─── Woks of Life fixture ─────────────────────────────────────────────────────
@@ -99,6 +223,12 @@ describe("Woks of Life — Mapo Tofu", () => {
 
   test("cuisine_source is asian", () => {
     expect(extractFromSchemaOrg(html, url).recipe!.cuisine_source).toBe("asian");
+  });
+
+  test("extracts instructions", () => {
+    expect(extractFromSchemaOrg(html, url).recipe!.instructions).toEqual([
+      "Bring a pot of water to a boil and blanch tofu for 1 minute.",
+    ]);
   });
 });
 
@@ -135,6 +265,12 @@ describe("Hot Thai Kitchen — Pad Thai (uses @graph)", () => {
     const rawTexts = recipe!.ingredients.map((i) => i.raw_text).join(" ");
     // Thai characters should still be in raw_text — stripping happens at normalization
     expect(rawTexts).toMatch(/[฀-๿]/);
+  });
+
+  test("extracts instructions from @graph recipe", () => {
+    expect(extractFromSchemaOrg(html, url).recipe!.instructions).toEqual([
+      "Soak rice noodles in room temperature water for 30 minutes.",
+    ]);
   });
 });
 
@@ -173,6 +309,12 @@ describe("Made With Lau — Cantonese Steamed Fish", () => {
     const rawTexts = recipe!.ingredients.map((i) => i.raw_text).join(" ");
     expect(rawTexts).toMatch(/[一-鿿]/);
   });
+
+  test("extracts instructions", () => {
+    expect(extractFromSchemaOrg(html, url).recipe!.instructions).toEqual([
+      "Score the fish on both sides with 3-4 diagonal cuts.",
+    ]);
+  });
 });
 
 // ─── Error cases ──────────────────────────────────────────────────────────────
@@ -196,5 +338,17 @@ describe("Error cases", () => {
     const html = `<script type="application/ld+json">{"@type":"WebPage","name":"Test"}</script>`;
     const r = extractFromSchemaOrg(html, "https://example.com");
     expect(r.recipe).toBeNull();
+  });
+
+  test("missing recipeInstructions does not fail extraction → []", () => {
+    const html = `<script type="application/ld+json">{
+      "@type": "Recipe",
+      "name": "No Steps",
+      "recipeIngredient": ["1 egg"],
+      "recipeYield": "2"
+    }</script>`;
+    const r = extractFromSchemaOrg(html, "https://example.com");
+    expect(r.recipe).not.toBeNull();
+    expect(r.recipe!.instructions).toEqual([]);
   });
 });

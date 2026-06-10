@@ -227,6 +227,7 @@ describe("normalizeRecipe — regression: weight→count conversion", () => {
           canonical_id: null,
         },
       ],
+      instructions: [],
     };
     const result = await normalizeRecipe(recipe, 4);
     const tomato = result.normalized.find((n) => n.canonical_id === "tomato");
@@ -328,6 +329,7 @@ describe("normalizeRecipe + planPurchases — galangal slices", () => {
           canonical_id: null,
         },
       ],
+      instructions: [],
     };
   }
 
@@ -379,6 +381,7 @@ describe("derive() — messy recipe resolves with registry only (no API key)", (
         name: "",
         canonical_id: null,
       })),
+      instructions: [],
     };
 
     const mealPlan: MealPlan = {
@@ -488,6 +491,7 @@ describe("shrimp — natural count unit", () => {
       id: "r1", url: "https://example.com", title: "T", base_servings: 2,
       parsed_at: new Date().toISOString(), cuisine_source: "unknown",
       ingredients: [{ recipe_id: "r1", raw_text: "12-15 medium shrimp", quantity: null, unit: null, name: "", canonical_id: null }],
+      instructions: [],
     };
     const { normalized } = await normalizeRecipe(recipe, 2);
     const s = normalized.find((n) => n.canonical_id === "shrimp")!;
@@ -514,6 +518,7 @@ describe("new registry entries — duck, bay leaf, thyme", () => {
       ingredients: ingredients.map((raw_text) => ({
         recipe_id: "duck1", raw_text, quantity: null, unit: null, name: "", canonical_id: null,
       })),
+      instructions: [],
     };
   }
 

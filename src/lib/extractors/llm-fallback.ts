@@ -28,6 +28,7 @@ const LlmRecipeSchema = z.object({
   title: z.string(),
   base_servings: z.number().int().positive(),
   ingredients: z.array(LlmIngredientSchema),
+  instructions: z.array(z.string()).default([]),
 });
 
 type LlmRecipe = z.infer<typeof LlmRecipeSchema>;
@@ -47,6 +48,10 @@ Return ONLY valid JSON with this exact schema (no markdown, no extra text):
       "unit": "cups",
       "name": "all-purpose flour"
     }
+  ],
+  "instructions": [
+    "Preheat the oven to 180°C.",
+    "Mix the flour and sugar in a large bowl."
   ]
 }
 
@@ -57,7 +62,10 @@ Rules:
   - raw_text: the full original ingredient string
   - quantity: numeric amount (null if "to taste" or unspecified)
   - unit: unit of measure lowercase (null if count/unspecified)
-  - name: ONLY the ingredient name — no quantity, unit, or prep notes`;
+  - name: ONLY the ingredient name — no quantity, unit, or prep notes
+- instructions: one string per cooking step, in order
+  - Do NOT include step numbers in the text
+  - Use [] if no cooking steps are found`;
 
 // ─── Main function ────────────────────────────────────────────────────────────
 
@@ -87,7 +95,8 @@ export async function extractWithLlm(
   try {
     const message = await client.messages.create({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 4096,
+      // Instructions roughly double the output size vs. ingredients alone
+      max_tokens: 8192,
       messages: [
         {
           role: "user",
@@ -139,6 +148,7 @@ export async function extractWithLlm(
     parsed_at: new Date().toISOString(),
     cuisine_source: inferCuisineSource(url),
     ingredients,
+    instructions: parsed.instructions,
   };
 
   return { recipe };

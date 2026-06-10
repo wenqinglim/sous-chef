@@ -63,6 +63,8 @@ export interface Recipe {
   /** Inferred from URL domain; drives soy-sauce disambiguation */
   cuisine_source: CuisineSource;
   ingredients: RecipeIngredient[];
+  /** Numbered cooking steps; empty array when extraction found none */
+  instructions: string[];
 }
 
 // ─── Meal Plan ────────────────────────────────────────────────────────────────
