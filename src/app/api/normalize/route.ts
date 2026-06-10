@@ -35,6 +35,8 @@ const RequestSchema = z.object({
         canonical_id: z.string().nullable(),
       })
     ),
+    // Tolerate recipes cached before instructions existed
+    instructions: z.array(z.string()).default([]),
   }),
   target_servings: z.number().positive().optional(),
 });

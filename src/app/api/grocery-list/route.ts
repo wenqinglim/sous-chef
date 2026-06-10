@@ -32,6 +32,8 @@ const RecipeSchema = z.object({
   parsed_at: z.string(),
   cuisine_source: z.enum(["asian", "western", "unknown"]),
   ingredients: z.array(IngredientSchema),
+  // Tolerate recipes cached before instructions existed
+  instructions: z.array(z.string()).default([]),
 });
 
 const RequestSchema = z.object({

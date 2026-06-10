@@ -9,7 +9,7 @@
  *   1. Find all <script type="application/ld+json"> blocks in the HTML
  *   2. Parse each JSON block
  *   3. Search for @type === "Recipe" (directly or inside @graph arrays)
- *   4. Extract name, recipeIngredient, recipeYield
+ *   4. Extract name, recipeIngredient, recipeYield, recipeInstructions
  */
 
 import * as cheerio from "cheerio";
@@ -19,11 +19,22 @@ import { v4 as uuidv4 } from "uuid";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+/** recipeInstructions entries: plain strings, HowToStep, or HowToSection */
+type SchemaOrgInstruction =
+  | string
+  | {
+      "@type"?: string | string[];
+      text?: string;
+      name?: string;
+      itemListElement?: SchemaOrgInstruction[];
+    };
+
 interface SchemaOrgRecipe {
   "@type"?: string | string[];
   name?: string;
   recipeIngredient?: string[];
   recipeYield?: string | string[] | number;
+  recipeInstructions?: SchemaOrgInstruction[] | string;
   url?: string;
 }
 
@@ -66,6 +77,59 @@ export function parseServings(raw: string | string[] | number | undefined | null
 
   const n = parseInt(match[1], 10);
   return n > 0 ? n : null;
+}
+
+/** Strip HTML tags and collapse whitespace in a step string */
+function cleanStepText(s: string): string {
+  return s.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Parse recipeInstructions into a flat array of step strings.
+ * Handles the three common JSON-LD shapes:
+ *   1. Plain string array:  ["Boil water.", "Add pasta."]
+ *   2. HowToStep objects:   [{ "@type": "HowToStep", "text": "..." }]
+ *   3. HowToSection:        [{ "@type": "HowToSection", "itemListElement": [...] }]
+ * Plus a single plain string (split on newlines). Sections are flattened.
+ * Returns [] for missing/unparseable input — instructions are optional.
+ */
+export function parseInstructions(
+  raw: SchemaOrgInstruction[] | string | undefined | null
+): string[] {
+  if (raw === undefined || raw === null) return [];
+
+  if (typeof raw === "string") {
+    return raw
+      .split(/\r?\n/)
+      .map(cleanStepText)
+      .filter((s) => s.length > 0);
+  }
+
+  if (!Array.isArray(raw)) return [];
+
+  const steps: string[] = [];
+  for (const item of raw) {
+    if (typeof item === "string") {
+      const cleaned = cleanStepText(item);
+      if (cleaned) steps.push(cleaned);
+      continue;
+    }
+    if (typeof item !== "object" || item === null) continue;
+
+    // HowToSection (or anything with nested steps) — recurse and flatten
+    if (Array.isArray(item.itemListElement)) {
+      steps.push(...parseInstructions(item.itemListElement));
+      continue;
+    }
+
+    // HowToStep — prefer text, fall back to name
+    const text = item.text ?? item.name;
+    if (typeof text === "string") {
+      const cleaned = cleanStepText(text);
+      if (cleaned) steps.push(cleaned);
+    }
+  }
+  return steps;
 }
 
 /**
@@ -189,6 +253,8 @@ export function extractFromSchemaOrg(html: string, url: string): ExtractionResul
     parsed_at: new Date().toISOString(),
     cuisine_source: inferCuisineSource(url),
     ingredients,
+    // Missing/unparseable instructions never fail extraction
+    instructions: parseInstructions(schemaRecipe.recipeInstructions),
   };
 
   return { recipe };
