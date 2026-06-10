@@ -119,7 +119,8 @@ export function loadRecipes(): Map<string, Recipe> {
       // Stale — skip (will be pruned on next save)
       continue;
     }
-    map.set(id, recipe);
+    // Recipes cached before cooking steps existed lack the field
+    map.set(id, { ...recipe, instructions: recipe.instructions ?? [] });
   }
 
   return map;

@@ -9,7 +9,10 @@
 import { Prisma } from "@prisma/client";
 import type { Recipe as RecipeRow } from "@prisma/client";
 import type { CuisineSource, Recipe, RecipeIngredient } from "@/types";
+import { normalizeUrl } from "@/lib/normalize-url";
 import { prisma } from "./client";
+
+export { normalizeUrl };
 
 // ─── Summaries (library list) ─────────────────────────────────────────────────
 
@@ -62,28 +65,6 @@ export function withRecipeId(recipe: Recipe, id: string): Recipe {
     id,
     ingredients: recipe.ingredients.map((ing) => ({ ...ing, recipe_id: id })),
   };
-}
-
-/**
- * Normalize a URL for dedupe: drop hash, tracking params, and trailing slash
- * so https://x.com/recipe/ and https://x.com/recipe?utm_source=y collapse
- * into one library entry.
- */
-export function normalizeUrl(url: string): string {
-  try {
-    const u = new URL(url);
-    u.hash = "";
-    for (const key of [...u.searchParams.keys()]) {
-      // Prefix-matches the tracking params; "ref" alone is exact ($)
-      if (/^(utm_|fbclid|gclid|mc_cid|mc_eid|ref$)/i.test(key)) {
-        u.searchParams.delete(key);
-      }
-    }
-    u.pathname = u.pathname.replace(/\/+$/, "") || "/";
-    return u.toString();
-  } catch {
-    return url;
-  }
 }
 
 function toRowData(recipe: Recipe, url: string) {

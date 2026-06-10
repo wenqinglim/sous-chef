@@ -2,14 +2,15 @@
 
 ## What This App Does
 
-Accepts recipe URLs + desired serving sizes, extracts ingredients, scales + aggregates quantities across recipes, and outputs a copyable grocery checklist formatted for Google Keep (line breaks become checkboxes).
+Accepts recipe URLs + desired serving sizes, extracts ingredients + cooking steps, scales + aggregates quantities across recipes, and outputs a copyable grocery checklist formatted for Google Keep (line breaks become checkboxes). Extracted recipes are auto-saved to a shared library (Postgres) and can be re-used in future grocery lists without re-entering the URL.
 
 ## Tech Stack
 
 - **Framework**: Next.js 15 (App Router, TypeScript)
 - **Styling**: Tailwind CSS
 - **LLM**: Claude API (`@anthropic-ai/sdk`) — used as fallback only; primary extraction uses schema.org JSON-LD
-- **State**: localStorage (no database in MVP)
+- **Database**: Postgres (Neon free tier via Vercel Marketplace) + Prisma 6 — shared recipe library; single-user for now (nullable `user_id` reserved for multi-user)
+- **State**: localStorage for draft meal-plan state; the DB is the durable recipe library
 - **Testing**: Jest + ts-jest
 - **HTML parsing**: cheerio (server-side only)
 
@@ -19,24 +20,28 @@ Copy `.env.local.example` to `.env.local` and fill in:
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
+DATABASE_URL=postgresql://...   # Neon connection string; injected by the Vercel↔Neon integration in prod
 ```
 
 ## Running Locally
 
 ```bash
 npm install
-npm run dev      # http://localhost:3000
-npm test         # run all tests (173 passing)
-npm run build    # production build
+npm run db:deploy  # apply Prisma migrations (once per database)
+npm run dev        # http://localhost:3000
+npm test           # run all tests (265 passing; no DB needed — Prisma is mocked)
+npm run build      # production build (runs prisma generate first)
 ```
 
 ## Test Coverage
 
-173 tests across 4 suites:
-- `tests/units.test.ts` — unit conversions + ingredient text parser, incl. mixed/unicode ranges (57 tests)
-- `tests/normalization.test.ts` — registry lookup, alias matching, soy sauce disambiguation, messy-name robustness (57 tests)
-- `tests/extraction.test.ts` — schema.org extraction for all 4 target sites (36 tests)
-- `tests/pipeline.test.ts` — aggregate, purchase planning, full derive(), purchase-unit + slice→weight + metric-output regressions (23 tests)
+265 tests across 6 suites:
+- `tests/units.test.ts` — unit conversions + ingredient text parser, incl. mixed/unicode ranges
+- `tests/normalization.test.ts` — registry lookup, alias matching, soy sauce disambiguation, messy-name robustness
+- `tests/extraction.test.ts` — schema.org extraction for all 4 target sites + `parseInstructions` for every JSON-LD instruction shape
+- `tests/pipeline.test.ts` — aggregate, purchase planning, full derive(), purchase-unit + slice→weight + metric-output regressions
+- `tests/safe-fetch.test.ts` — SSRF protections
+- `tests/recipes-repo.test.ts` — recipe repository mappers + mocked-Prisma flows (upsert id retention, URL dedupe, summaries)
 
 ## Verification Checklist (manual smoke test)
 
@@ -47,6 +52,9 @@ npm run build    # production build
 5. **Copy to Google Keep**: click copy → paste into Google Keep note → each line becomes a checkbox
 6. **Thai script**: Hot Thai Kitchen recipe → Thai characters in parentheses stripped from ingredient names
 7. **LocalStorage restore**: close and reopen the browser → previously loaded recipes should still be there
+8. **Saved library**: extract a recipe → it appears under "Or pick from your saved recipes"; reload, pick it from the library (no URL) → grocery list generates identically
+9. **Cooking steps**: expand "View recipe" on a loaded card → numbered steps render
+10. **DB down**: with `DATABASE_URL` unset, URL extraction still works (response has `saved: false`; library hidden)
 
 ## Architecture — Five-Layer Pipeline
 
@@ -118,6 +126,7 @@ Recipe {
   parsed_at: string      // ISO date; recipes cached for 7 days
   cuisine_source: "asian" | "western" | "unknown"
   ingredients: RecipeIngredient[]
+  instructions: string[]  // numbered cooking steps; [] when extraction found none
 }
 
 RecipeIngredient {
@@ -173,9 +182,23 @@ Heuristic: unqualified "soy sauce" → `soy_sauce_light` if `cuisine_source === 
 
 | Route | Method | Body | Response | Note |
 |-------|--------|------|----------|------|
-| `/api/extract` | POST | `{ url }` | `Recipe` | Server-side fetch; avoids CORS |
+| `/api/extract` | POST | `{ url }` | `{ recipe, saved }` | Server-side fetch; auto-saves to the library (saved=false if DB unreachable) |
 | `/api/normalize` | POST | `{ ingredients[], cuisine_source }` | `NormalizedIngredient[]` | Calls Claude in batch for unknowns |
 | `/api/grocery-list` | POST | `{ recipes: [{ recipe, target_servings }] }` | `{ items, grouped_by_aisle }` | Full pipeline |
+| `/api/recipes` | GET | — | `{ recipes: RecipeSummary[] }` | Saved-recipe library list |
+| `/api/recipes/[id]` | GET | — | `{ recipe }` | Full saved recipe |
+| `/api/recipes/[id]` | DELETE | — | `{ ok: true }` | Remove from library |
+
+## Recipe Library (Postgres + Prisma)
+
+`prisma/schema.prisma` — one `recipes` table; `ingredients`/`instructions` are JSONB
+documents (the app only consumes whole `Recipe` objects, nothing queries inside the
+JSON). `url` is unique for dedupe; `/api/extract` upserts by normalized URL (trailing
+slash, utm params, and hash stripped) and keeps the existing row's id on re-extract.
+
+All DB access goes through `src/lib/db/recipes.ts` — the single place to add a
+`userId` filter when multi-user lands (plus one migration: `url @unique` →
+`@@unique([url, user_id])`; the nullable `user_id` column already exists).
 
 ## Unit Conversions (base units: ml, g, each)
 
@@ -217,3 +240,6 @@ user copies out never contains oz or lb. Enforced by a regression test in
 - [x] Task 10: localStorage helpers
 - [x] Task 11: UI components + main page
 - [x] Task 12: Integration tests + final CLAUDE.md update
+- [x] Task 13: Cooking-step extraction (`Recipe.instructions`)
+- [x] Task 14: Shared recipe library (Postgres + Prisma, `/api/recipes`, auto-save on extract)
+- [x] Task 15: Library picker UI + recipe detail view
