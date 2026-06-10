@@ -23,6 +23,10 @@ export interface RecipeSummary {
   base_servings: number;
   ingredient_count: number;
   has_instructions: boolean;
+  /** True once a user has saved a manual edit (drives the "Customized" badge) */
+  edited: boolean;
+  /** True when the recipe has non-empty user notes */
+  has_notes: boolean;
   created_at: string;
 }
 
@@ -52,6 +56,8 @@ export function rowToRecipe(row: RecipeRow): Recipe {
     instructions: Array.isArray(row.instructions)
       ? (row.instructions as unknown as string[])
       : [],
+    notes: row.notes ?? null,
+    edited: row.edited ?? false,
   };
 }
 
@@ -99,6 +105,8 @@ export async function listRecipes(): Promise<RecipeSummary[]> {
       : 0,
     has_instructions:
       Array.isArray(row.instructions) && row.instructions.length > 0,
+    edited: row.edited ?? false,
+    has_notes: typeof row.notes === "string" && row.notes.trim().length > 0,
     created_at: row.createdAt.toISOString(),
   }));
 }
@@ -112,14 +120,23 @@ export async function getRecipe(id: string): Promise<Recipe | null> {
  * Save a freshly extracted recipe, deduping by normalized URL.
  *
  * On URL conflict the existing row's id wins (no id churn on re-extract) and
- * the stored document is replaced wholesale — manual edits only ever live in
- * the review step, never in the DB, so nothing user-authored is lost.
+ * the stored document is replaced wholesale. The one exception: if the existing
+ * row has been manually edited (`edited === true`), re-extraction is a no-op —
+ * the stored recipe is returned untouched so a user's customizations (edited
+ * ingredients/steps, notes) are never silently overwritten. Manual edits are
+ * persisted via updateRecipe(); see that function and PUT /api/recipes/[id].
  * Returns the recipe as stored, with ingredient recipe_ids rewritten to the
  * surviving id.
  */
 export async function upsertRecipeByUrl(recipe: Recipe): Promise<Recipe> {
   const url = normalizeUrl(recipe.url);
   const existing = await prisma.recipe.findUnique({ where: { url } });
+
+  // Protect user edits: a re-extract must not clobber a customized recipe.
+  if (existing?.edited) {
+    return rowToRecipe(existing);
+  }
+
   const id = existing?.id ?? recipe.id;
   const stored = withRecipeId({ ...recipe, url }, id);
   const data = toRowData(stored, url);
@@ -130,6 +147,56 @@ export async function upsertRecipeByUrl(recipe: Recipe): Promise<Recipe> {
     update: data,
   });
   return rowToRecipe(row);
+}
+
+/** Fields a user may customize on a saved recipe. All optional (partial patch). */
+export interface RecipeUpdate {
+  title?: string;
+  base_servings?: number;
+  ingredients?: RecipeIngredient[];
+  instructions?: string[];
+  notes?: string | null;
+}
+
+/**
+ * Persist a user's manual edits to a saved recipe and flag it as `edited` so a
+ * future re-extract of the same URL won't overwrite the customization (see
+ * upsertRecipeByUrl). Ingredient recipe_ids are rewritten to the row id via
+ * withRecipeId. Returns the updated Recipe, or null if no row matches `id`.
+ */
+export async function updateRecipe(
+  id: string,
+  patch: RecipeUpdate
+): Promise<Recipe | null> {
+  const data: Prisma.RecipeUpdateInput = { edited: true };
+  if (patch.title !== undefined) data.title = patch.title;
+  if (patch.base_servings !== undefined) data.baseServings = patch.base_servings;
+  if (patch.instructions !== undefined) {
+    data.instructions = patch.instructions as unknown as Prisma.InputJsonValue;
+  }
+  if (patch.ingredients !== undefined) {
+    // Keep the embedded recipe_id consistent with the row id.
+    const ingredients = patch.ingredients.map((ing) => ({
+      ...ing,
+      recipe_id: id,
+    }));
+    data.ingredients = ingredients as unknown as Prisma.InputJsonValue;
+  }
+  if (patch.notes !== undefined) data.notes = patch.notes;
+
+  try {
+    const row = await prisma.recipe.update({ where: { id }, data });
+    return rowToRecipe(row);
+  } catch (err) {
+    // P2025 = record not found → null; other errors propagate (→ 500)
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2025"
+    ) {
+      return null;
+    }
+    throw err;
+  }
 }
 
 export async function deleteRecipe(id: string): Promise<boolean> {

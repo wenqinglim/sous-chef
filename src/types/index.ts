@@ -65,6 +65,10 @@ export interface Recipe {
   ingredients: RecipeIngredient[];
   /** Numbered cooking steps; empty array when extraction found none */
   instructions: string[];
+  /** Freeform user notes; optional (absent on freshly extracted / cached recipes) */
+  notes?: string | null;
+  /** True once a user has saved a manual edit; guards against re-extract clobber */
+  edited?: boolean;
 }
 
 // ─── Meal Plan ────────────────────────────────────────────────────────────────
