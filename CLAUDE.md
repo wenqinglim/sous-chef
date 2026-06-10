@@ -2,7 +2,19 @@
 
 ## What This App Does
 
-Accepts recipe URLs + desired serving sizes, extracts ingredients + cooking steps, scales + aggregates quantities across recipes, and outputs a copyable grocery checklist formatted for Google Keep (line breaks become checkboxes). Extracted recipes are auto-saved to a shared library (Postgres) and can be re-used in future grocery lists without re-entering the URL.
+A **recipe library** is the primary surface: the home page (`/`) lists your saved recipes; open one (`/recipes/[id]`) to read its ingredients, steps, and notes, follow a link back to the original source, and customize it. Recipes are imported from a URL (schema.org JSON-LD, Claude fallback) and auto-saved to a shared library (Postgres).
+
+Turning recipes into a **grocery list** is a secondary feature on its own route (`/grocery-list`): pick recipes + serving sizes, scale + aggregate quantities across them, and copy a checklist formatted for Google Keep (line breaks become checkboxes).
+
+### Pages / Routes (UI)
+
+| Route | Purpose |
+|-------|---------|
+| `/` | Recipe library — grid of saved recipes (`RecipeLibraryGrid`) + URL importer (`AddRecipeForm`) |
+| `/recipes/[id]` | Single-recipe detail/customize (`RecipeView`); link to original URL; "Add to grocery list" |
+| `/grocery-list` | The build-a-grocery-list wizard (URL → review → list); the saved-recipe picker also lives here |
+
+Shared chrome (`SiteHeader`) lives in `src/app/layout.tsx`.
 
 ## Tech Stack
 
@@ -45,16 +57,17 @@ npm run build      # production build (runs prisma generate first)
 
 ## Verification Checklist (manual smoke test)
 
-1. **Single recipe**: Enter a RecipeTin Eats URL, set 4 servings → verify title shows, ingredients render in review step
-2. **Scaling**: Change servings to 6 → confirm quantities reflect target_servings, not base_servings
-3. **Multi-recipe**: Add a Woks of Life recipe alongside RecipeTin Eats → verify shared ingredients (garlic) aggregate into one line item
-4. **Soy sauce test**: Woks of Life recipe → soy sauce should show as "Soy Sauce (Light)" in the list
-5. **Copy to Google Keep**: click copy → paste into Google Keep note → each line becomes a checkbox
-6. **Thai script**: Hot Thai Kitchen recipe → Thai characters in parentheses stripped from ingredient names
-7. **LocalStorage restore**: close and reopen the browser → previously loaded recipes should still be there
-8. **Saved library**: extract a recipe → it appears under "Or pick from your saved recipes"; reload, pick it from the library (no URL) → grocery list generates identically
-9. **Cooking steps**: expand "View recipe" on a loaded card → numbered steps render
-10. **DB down**: with `DATABASE_URL` unset, URL extraction still works (response has `saved: false`; library hidden)
+0. **Library home**: on `/`, paste a RecipeTin Eats URL into "Add a recipe" → lands on `/recipes/[id]`; the recipe also appears as a card on `/`
+1. **Detail view**: open a saved recipe → title, ingredients, and numbered steps render; "View original recipe ↗" opens `recipe.url` in a new tab
+2. **Single recipe (grocery)**: from a recipe, "Add to grocery list" → on `/grocery-list`, set 4 servings → ingredients render in review step
+3. **Scaling**: Change servings to 6 → confirm quantities reflect target_servings, not base_servings
+4. **Multi-recipe**: Add a Woks of Life recipe alongside RecipeTin Eats → verify shared ingredients (garlic) aggregate into one line item
+5. **Soy sauce test**: Woks of Life recipe → soy sauce should show as "Soy Sauce (Light)" in the list
+6. **Copy to Google Keep**: click copy → paste into Google Keep note → each line becomes a checkbox
+7. **Thai script**: Hot Thai Kitchen recipe → Thai characters in parentheses stripped from ingredient names
+8. **LocalStorage restore**: on `/grocery-list`, close and reopen the browser → previously loaded recipes should still be there
+9. **Saved library picker**: on `/grocery-list`, pick a recipe from "Or pick from your saved recipes" (no URL) → grocery list generates identically
+10. **DB down**: with `DATABASE_URL` unset, the home grid degrades quietly and URL extraction still works (response has `saved: false`)
 
 ## Architecture — Five-Layer Pipeline
 
