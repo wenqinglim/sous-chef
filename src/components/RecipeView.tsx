@@ -16,9 +16,10 @@ import { addToMealPlan } from "@/lib/storage/localStorage";
 
 interface Props {
   recipe: Recipe;
+  onCustomize: () => void;
 }
 
-export default function RecipeView({ recipe }: Props) {
+export default function RecipeView({ recipe, onCustomize }: Props) {
   const router = useRouter();
   const [added, setAdded] = useState(false);
   const instructions = recipe.instructions ?? [];
@@ -67,6 +68,12 @@ export default function RecipeView({ recipe }: Props) {
             className="px-3 py-1.5 text-sm font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 transition-colors"
           >
             🛒 Add to grocery list
+          </button>
+          <button
+            onClick={onCustomize}
+            className="px-3 py-1.5 text-sm font-medium rounded-lg border border-stone-300 text-stone-700 hover:bg-stone-50 transition-colors"
+          >
+            ✏️ Customize
           </button>
         </div>
 
