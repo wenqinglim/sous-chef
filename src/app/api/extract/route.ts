@@ -5,7 +5,7 @@
  * Must be server-side to avoid CORS restrictions.
  *
  * Body:  { url: string }
- * 200:   { recipe: Recipe }
+ * 200:   { recipe: Recipe, saved: boolean }  (saved=false when the DB is unreachable)
  * 400:   { error: string }  (invalid URL)
  * 422:   { error: string }  (extraction failed — no ingredients found)
  * 502:   { error: string }  (fetch failed)
@@ -13,9 +13,25 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import type { Recipe } from "@/types";
 import { extractFromSchemaOrg, extractBodyText } from "@/lib/extractors/schema-org";
 import { extractWithLlm } from "@/lib/extractors/llm-fallback";
 import { safeFetch, BlockedUrlError } from "@/lib/extractors/safe-fetch";
+import { upsertRecipeByUrl } from "@/lib/db/recipes";
+
+/**
+ * Auto-save the extracted recipe to the shared library, deduping by URL.
+ * Extraction must keep working when the DB is down/cold, so failures degrade
+ * to saved: false with the unsaved recipe.
+ */
+async function saveExtracted(recipe: Recipe) {
+  try {
+    const saved = await upsertRecipeByUrl(recipe);
+    return NextResponse.json({ recipe: saved, saved: true });
+  } catch {
+    return NextResponse.json({ recipe, saved: false });
+  }
+}
 
 export const maxDuration = 60;
 
@@ -68,14 +84,14 @@ export async function POST(request: NextRequest) {
   // Try schema.org extraction first
   const schemaResult = extractFromSchemaOrg(html, url);
   if (schemaResult.recipe) {
-    return NextResponse.json({ recipe: schemaResult.recipe });
+    return saveExtracted(schemaResult.recipe);
   }
 
   // Fall back to LLM extraction
   const bodyText = extractBodyText(html);
   const llmResult = await extractWithLlm(bodyText, url);
   if (llmResult.recipe) {
-    return NextResponse.json({ recipe: llmResult.recipe });
+    return saveExtracted(llmResult.recipe);
   }
 
   return NextResponse.json(
