@@ -120,6 +120,24 @@ describe("parseInstructions", () => {
     expect(parseInstructions(null)).toEqual([]);
   });
 
+  test("lone unwrapped HowToStep object", () => {
+    expect(
+      parseInstructions({ "@type": "HowToStep", text: "Only step." })
+    ).toEqual(["Only step."]);
+  });
+
+  test("lone unwrapped HowToSection object", () => {
+    expect(
+      parseInstructions({
+        "@type": "HowToSection",
+        itemListElement: [
+          { "@type": "HowToStep", text: "First." },
+          { "@type": "HowToStep", text: "Second." },
+        ],
+      })
+    ).toEqual(["First.", "Second."]);
+  });
+
   test("malformed entries skipped, valid ones kept", () => {
     expect(
       parseInstructions([

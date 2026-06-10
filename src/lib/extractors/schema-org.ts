@@ -34,7 +34,7 @@ interface SchemaOrgRecipe {
   name?: string;
   recipeIngredient?: string[];
   recipeYield?: string | string[] | number;
-  recipeInstructions?: SchemaOrgInstruction[] | string;
+  recipeInstructions?: SchemaOrgInstruction[] | SchemaOrgInstruction;
   url?: string;
 }
 
@@ -90,11 +90,13 @@ function cleanStepText(s: string): string {
  *   1. Plain string array:  ["Boil water.", "Add pasta."]
  *   2. HowToStep objects:   [{ "@type": "HowToStep", "text": "..." }]
  *   3. HowToSection:        [{ "@type": "HowToSection", "itemListElement": [...] }]
- * Plus a single plain string (split on newlines). Sections are flattened.
- * Returns [] for missing/unparseable input — instructions are optional.
+ * Plus a single plain string (split on newlines) and a lone unwrapped
+ * step/section object (some recipe plugins skip the array). Sections are
+ * flattened. Returns [] for missing/unparseable input — instructions are
+ * optional.
  */
 export function parseInstructions(
-  raw: SchemaOrgInstruction[] | string | undefined | null
+  raw: SchemaOrgInstruction[] | SchemaOrgInstruction | undefined | null
 ): string[] {
   if (raw === undefined || raw === null) return [];
 
@@ -105,10 +107,13 @@ export function parseInstructions(
       .filter((s) => s.length > 0);
   }
 
-  if (!Array.isArray(raw)) return [];
+  if (typeof raw !== "object") return [];
+
+  // Lone HowToStep/HowToSection object not wrapped in an array
+  const items = Array.isArray(raw) ? raw : [raw];
 
   const steps: string[] = [];
-  for (const item of raw) {
+  for (const item of items) {
     if (typeof item === "string") {
       const cleaned = cleanStepText(item);
       if (cleaned) steps.push(cleaned);
