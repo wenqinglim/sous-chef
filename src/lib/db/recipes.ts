@@ -153,7 +153,8 @@ export async function upsertRecipeByUrl(recipe: Recipe): Promise<Recipe> {
 export interface RecipeUpdate {
   title?: string;
   base_servings?: number;
-  ingredients?: RecipeIngredient[];
+  /** recipe_id is re-derived from the row id, so callers needn't supply it. */
+  ingredients?: Array<Omit<RecipeIngredient, "recipe_id"> & { recipe_id?: string }>;
   instructions?: string[];
   notes?: string | null;
 }

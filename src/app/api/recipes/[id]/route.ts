@@ -65,15 +65,19 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     );
   }
 
-  const { ingredients, ...rest } = parsed.data;
+  // Reject a no-op patch: an empty body would otherwise flag the recipe
+  // `edited` (disabling re-extract refresh) without changing anything.
+  if (Object.keys(parsed.data).length === 0) {
+    return NextResponse.json(
+      { error: "No editable fields provided" },
+      { status: 400 }
+    );
+  }
+
+  // updateRecipe re-derives each ingredient's recipe_id from the row id, so the
+  // validated body can go straight through.
   try {
-    const recipe = await updateRecipe(id, {
-      ...rest,
-      // Re-derive recipe_id server-side so it stays consistent with the row id.
-      ...(ingredients
-        ? { ingredients: ingredients.map((ing) => ({ ...ing, recipe_id: id })) }
-        : {}),
-    });
+    const recipe = await updateRecipe(id, parsed.data);
     if (!recipe) {
       return NextResponse.json({ error: "Recipe not found" }, { status: 404 });
     }
