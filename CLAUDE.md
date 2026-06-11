@@ -29,19 +29,19 @@ DATABASE_URL=postgresql://...   # Neon connection string; injected by the Vercel
 npm install
 npm run db:deploy  # apply Prisma migrations (once per database)
 npm run dev        # http://localhost:3000
-npm test           # run all tests (265 passing; no DB needed — Prisma is mocked)
+npm test           # run all tests (275 passing; no DB needed — Prisma is mocked)
 npm run build      # production build (runs prisma generate first)
 ```
 
 ## Test Coverage
 
-265 tests across 6 suites:
+275 tests across 6 suites:
 - `tests/units.test.ts` — unit conversions + ingredient text parser, incl. mixed/unicode ranges
 - `tests/normalization.test.ts` — registry lookup, alias matching, soy sauce disambiguation, messy-name robustness
 - `tests/extraction.test.ts` — schema.org extraction for all 4 target sites + `parseInstructions` for every JSON-LD instruction shape
 - `tests/pipeline.test.ts` — aggregate, purchase planning, full derive(), purchase-unit + slice→weight + metric-output regressions
 - `tests/safe-fetch.test.ts` — SSRF protections
-- `tests/recipes-repo.test.ts` — recipe repository mappers + mocked-Prisma flows (upsert id retention, URL dedupe, summaries)
+- `tests/recipes-repo.test.ts` — recipe repository mappers + mocked-Prisma flows (upsert id retention, URL dedupe, summaries, `updateRecipe` edits, edited-recipe re-extract guard)
 
 ## Verification Checklist (manual smoke test)
 
@@ -127,6 +127,8 @@ Recipe {
   cuisine_source: "asian" | "western" | "unknown"
   ingredients: RecipeIngredient[]
   instructions: string[]  // numbered cooking steps; [] when extraction found none
+  notes?: string | null   // freeform user notes (customization); absent on fresh extracts
+  edited?: boolean         // true once a user saved an edit; guards against re-extract clobber
 }
 
 RecipeIngredient {
@@ -187,6 +189,7 @@ Heuristic: unqualified "soy sauce" → `soy_sauce_light` if `cuisine_source === 
 | `/api/grocery-list` | POST | `{ recipes: [{ recipe, target_servings }] }` | `{ items, grouped_by_aisle }` | Full pipeline |
 | `/api/recipes` | GET | — | `{ recipes: RecipeSummary[] }` | Saved-recipe library list |
 | `/api/recipes/[id]` | GET | — | `{ recipe }` | Full saved recipe |
+| `/api/recipes/[id]` | PUT | `{ title?, base_servings?, ingredients?, instructions?, notes? }` | `{ recipe }` | Persist user edits; flags the recipe `edited` |
 | `/api/recipes/[id]` | DELETE | — | `{ ok: true }` | Remove from library |
 
 ## Recipe Library (Postgres + Prisma)
@@ -195,6 +198,14 @@ Heuristic: unqualified "soy sauce" → `soy_sauce_light` if `cuisine_source === 
 documents (the app only consumes whole `Recipe` objects, nothing queries inside the
 JSON). `url` is unique for dedupe; `/api/extract` upserts by normalized URL (trailing
 slash, utm params, and hash stripped) and keeps the existing row's id on re-extract.
+
+**User customization persists.** Recipes carry a nullable `notes` column and an
+`edited` boolean. `PUT /api/recipes/[id]` → `updateRecipe()` saves edits
+(title/servings/ingredients/instructions/notes) and sets `edited = true`. Once a
+recipe is `edited`, `upsertRecipeByUrl()` treats a re-extract of the same URL as a
+no-op so the user's customization is never clobbered. (Edited ingredient `raw_text`
+is re-parsed client-side via `parseIngredient()` and `canonical_id` reset to null so
+the grocery pipeline re-normalizes.)
 
 All DB access goes through `src/lib/db/recipes.ts` — the single place to add a
 `userId` filter when multi-user lands (plus one migration: `url @unique` →

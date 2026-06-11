@@ -18,6 +18,8 @@ model Recipe {
   cuisineSource String   @map("cuisine_source") // "asian" | "western" | "unknown"
   ingredients   Json // RecipeIngredient[]
   instructions  Json // string[]
+  notes         String?  @map("notes") // freeform user notes (customization)
+  edited        Boolean  @default(false) @map("edited") // true once a user saves an edit; guards against re-extract clobber
   parsedAt      DateTime @map("parsed_at")
   userId        String?  @map("user_id") // nullable until multi-user support
   createdAt     DateTime @default(now()) @map("created_at")

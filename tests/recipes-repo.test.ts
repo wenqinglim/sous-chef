@@ -15,6 +15,7 @@ jest.mock("@/lib/db/client", () => ({
       findMany: jest.fn(),
       findUnique: jest.fn(),
       upsert: jest.fn(),
+      update: jest.fn(),
       delete: jest.fn(),
     },
   },
@@ -26,6 +27,7 @@ import {
   listRecipes,
   normalizeUrl,
   rowToRecipe,
+  updateRecipe,
   upsertRecipeByUrl,
   withRecipeId,
 } from "@/lib/db/recipes";
@@ -34,6 +36,7 @@ const mockRecipe = prisma.recipe as unknown as {
   findMany: jest.Mock;
   findUnique: jest.Mock;
   upsert: jest.Mock;
+  update: jest.Mock;
   delete: jest.Mock;
 };
 
@@ -79,6 +82,8 @@ function makeRow(overrides: Record<string, unknown> = {}) {
       },
     ],
     instructions: ["Chop the garlic."],
+    notes: null,
+    edited: false,
     parsedAt: new Date("2026-06-10T00:00:00.000Z"),
     userId: null,
     createdAt: new Date("2026-06-10T01:00:00.000Z"),
@@ -114,6 +119,8 @@ describe("rowToRecipe", () => {
         },
       ],
       instructions: ["Chop the garlic."],
+      notes: null,
+      edited: false,
     });
   });
 
@@ -209,6 +216,21 @@ describe("upsertRecipeByUrl", () => {
     }
   });
 
+  test("existing row is edited → skips the write, returns it untouched", async () => {
+    mockRecipe.findUnique.mockResolvedValue(
+      makeRow({ id: "old-id", edited: true, title: "My customized recipe" })
+    );
+
+    const result = await upsertRecipeByUrl(
+      makeRecipe({ id: "fresh-id", title: "Re-extracted title" })
+    );
+
+    expect(mockRecipe.upsert).not.toHaveBeenCalled();
+    expect(result.id).toBe("old-id");
+    expect(result.title).toBe("My customized recipe");
+    expect(result.edited).toBe(true);
+  });
+
   test("dedupes by normalized URL (trailing slash + utm)", async () => {
     mockRecipe.findUnique.mockResolvedValue(null);
     mockRecipe.upsert.mockImplementation(({ create }: { create: Record<string, unknown> }) =>
@@ -226,6 +248,81 @@ describe("upsertRecipeByUrl", () => {
 
 // ─── listRecipes / deleteRecipe ───────────────────────────────────────────────
 
+// ─── updateRecipe ─────────────────────────────────────────────────────────────
+
+describe("updateRecipe", () => {
+  test("persists the patch and flags the row as edited", async () => {
+    mockRecipe.update.mockImplementation(
+      ({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve(
+          makeRow({
+            id: "row-id",
+            title: (data.title as string) ?? "Test Recipe",
+            notes: (data.notes as string) ?? null,
+            edited: data.edited as boolean,
+          })
+        )
+    );
+
+    const result = await updateRecipe("row-id", {
+      title: "Edited title",
+      notes: "extra chili",
+    });
+
+    expect(mockRecipe.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "row-id" },
+        data: expect.objectContaining({
+          edited: true,
+          title: "Edited title",
+          notes: "extra chili",
+        }),
+      })
+    );
+    expect(result?.edited).toBe(true);
+    expect(result?.title).toBe("Edited title");
+  });
+
+  test("rewrites embedded ingredient recipe_id to the row id", async () => {
+    mockRecipe.update.mockImplementation(
+      ({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve(makeRow({ id: "row-id", ingredients: data.ingredients }))
+    );
+
+    const result = await updateRecipe("row-id", {
+      ingredients: [
+        {
+          recipe_id: "stale-id",
+          raw_text: "1 onion",
+          quantity: 1,
+          unit: null,
+          name: "onion",
+          canonical_id: null,
+        },
+      ],
+    });
+
+    expect(result?.ingredients[0].recipe_id).toBe("row-id");
+  });
+
+  test("returns null when the record does not exist (P2025)", async () => {
+    mockRecipe.update.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Record not found", {
+        code: "P2025",
+        clientVersion: "6.0.0",
+      })
+    );
+    expect(await updateRecipe("missing", { title: "x" })).toBeNull();
+  });
+
+  test("propagates non-P2025 errors", async () => {
+    mockRecipe.update.mockRejectedValue(new Error("connection refused"));
+    await expect(updateRecipe("row-id", { title: "x" })).rejects.toThrow(
+      "connection refused"
+    );
+  });
+});
+
 describe("listRecipes", () => {
   test("maps rows to summaries, newest first", async () => {
     mockRecipe.findMany.mockResolvedValue([makeRow()]);
@@ -241,6 +338,8 @@ describe("listRecipes", () => {
         base_servings: 4,
         ingredient_count: 1,
         has_instructions: true,
+        edited: false,
+        has_notes: false,
         created_at: "2026-06-10T01:00:00.000Z",
       },
     ]);
@@ -250,6 +349,21 @@ describe("listRecipes", () => {
     mockRecipe.findMany.mockResolvedValue([makeRow({ instructions: [] })]);
     const [summary] = await listRecipes();
     expect(summary.has_instructions).toBe(false);
+  });
+
+  test("edited row with notes → edited / has_notes true", async () => {
+    mockRecipe.findMany.mockResolvedValue([
+      makeRow({ edited: true, notes: "  add chili  " }),
+    ]);
+    const [summary] = await listRecipes();
+    expect(summary.edited).toBe(true);
+    expect(summary.has_notes).toBe(true);
+  });
+
+  test("whitespace-only notes → has_notes false", async () => {
+    mockRecipe.findMany.mockResolvedValue([makeRow({ notes: "   " })]);
+    const [summary] = await listRecipes();
+    expect(summary.has_notes).toBe(false);
   });
 });
 
