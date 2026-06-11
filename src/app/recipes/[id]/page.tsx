@@ -11,6 +11,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import type { Recipe } from "@/types";
 import RecipeView from "@/components/RecipeView";
+import RecipeEditor from "@/components/RecipeEditor";
 
 export default function RecipeDetailPage() {
   const params = useParams<{ id: string }>();
@@ -18,6 +19,7 @@ export default function RecipeDetailPage() {
 
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,5 +57,18 @@ export default function RecipeDetailPage() {
     );
   }
 
-  return <RecipeView recipe={recipe} />;
+  if (editing) {
+    return (
+      <RecipeEditor
+        recipe={recipe}
+        onCancel={() => setEditing(false)}
+        onSaved={(updated) => {
+          setRecipe(updated);
+          setEditing(false);
+        }}
+      />
+    );
+  }
+
+  return <RecipeView recipe={recipe} onCustomize={() => setEditing(true)} />;
 }

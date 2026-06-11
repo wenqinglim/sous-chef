@@ -11,7 +11,7 @@ Turning recipes into a **grocery list** is a secondary feature on its own route 
 | Route | Purpose |
 |-------|---------|
 | `/` | Recipe library — grid of saved recipes (`RecipeLibraryGrid`) + URL importer (`AddRecipeForm`) |
-| `/recipes/[id]` | Single-recipe detail/customize (`RecipeView`); link to original URL; "Add to grocery list" |
+| `/recipes/[id]` | Single-recipe detail (`RecipeView`) + customize editor (`RecipeEditor`); link to original URL; "Add to grocery list" |
 | `/grocery-list` | The build-a-grocery-list wizard (URL → review → list); the saved-recipe picker also lives here |
 
 Shared chrome (`SiteHeader`) lives in `src/app/layout.tsx`.
@@ -59,6 +59,7 @@ npm run build      # production build (runs prisma generate first)
 
 0. **Library home**: on `/`, paste a RecipeTin Eats URL into "Add a recipe" → lands on `/recipes/[id]`; the recipe also appears as a card on `/`
 1. **Detail view**: open a saved recipe → title, ingredients, and numbered steps render; "View original recipe ↗" opens `recipe.url` in a new tab
+1a. **Customize**: click "✏️ Customize" → edit an ingredient, add/remove a step, add a note → Save → reload the page: edits persist and the card/detail shows a "Customized" badge. Re-importing the same URL no longer overwrites the edits
 2. **Single recipe (grocery)**: from a recipe, "Add to grocery list" → on `/grocery-list`, set 4 servings → ingredients render in review step
 3. **Scaling**: Change servings to 6 → confirm quantities reflect target_servings, not base_servings
 4. **Multi-recipe**: Add a Woks of Life recipe alongside RecipeTin Eats → verify shared ingredients (garlic) aggregate into one line item
