@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import SiteHeader from "@/components/SiteHeader";
 
 export const metadata: Metadata = {
-  title: "Sous-Chef — Recipe to Grocery List",
+  title: "Sous-Chef — Recipe Library",
   description:
-    "Turn recipe URLs into a consolidated grocery checklist, scaled to your servings.",
+    "Save recipes from any URL, view and customize their ingredients and steps, and build a grocery list when you're ready.",
 };
 
 export default function RootLayout({
@@ -14,7 +15,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="min-h-screen">{children}</body>
+      <body className="min-h-screen bg-stone-50">
+        <SiteHeader />
+        {children}
+      </body>
     </html>
   );
 }
