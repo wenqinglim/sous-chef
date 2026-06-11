@@ -42,8 +42,14 @@ npm install
 npm run db:deploy  # apply Prisma migrations (once per database)
 npm run dev        # http://localhost:3000
 npm test           # run all tests (275 passing; no DB needed — Prisma is mocked)
-npm run build      # production build (runs prisma generate first)
+npm run build      # production build: prisma generate → migrate deploy → next build
 ```
+
+> `build` runs `prisma migrate deploy` so every deploy (Vercel) applies pending
+> migrations to the target database before serving — this is what keeps prod's
+> schema in sync with the code. A consequence: `npm run build` needs a reachable
+> `DATABASE_URL`. For a build-only check without a DB, run
+> `npm run db:deploy` separately (or `next build` directly) and rely on `npm test`.
 
 ## Test Coverage
 
