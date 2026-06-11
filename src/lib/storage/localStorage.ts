@@ -152,10 +152,16 @@ export function removeRecipe(recipeId: string, existing: Map<string, Recipe>): M
  * Add a single recipe to the current meal plan (and cache it), so the
  * grocery-list page picks it up on next load. Used by "Add to grocery list"
  * on a recipe detail page. Idempotent: re-adding updates the serving size.
+ *
+ * The cached copy is stamped with a fresh `parsed_at`: library recipes carry
+ * their original extraction date, which can be older than RECIPE_TTL_MS, and
+ * loadRecipes() would otherwise prune it on the next load — making the recipe
+ * vanish from the grocery list. Touching the cache timestamp on use keeps it
+ * alive for the TTL window (the real extraction date isn't needed downstream).
  */
 export function addToMealPlan(recipe: Recipe, targetServings: number): void {
   const recipes = loadRecipes();
-  recipes.set(recipe.id, recipe);
+  recipes.set(recipe.id, { ...recipe, parsed_at: new Date().toISOString() });
   saveRecipes(recipes);
 
   const plan = loadMealPlan();

@@ -93,15 +93,23 @@ export default function RecipeLibraryGrid() {
       {error && <p className="text-xs text-red-500 mb-2">{error}</p>}
       <div className="grid gap-3 sm:grid-cols-2">
         {summaries.map((summary) => (
-          <Link
+          // Card is a plain container; the title is the real link. The delete
+          // button is a sibling (not nested in an <a>), keeping the markup valid.
+          <div
             key={summary.id}
-            href={`/recipes/${summary.id}`}
             className="group relative flex flex-col p-4 bg-white border border-stone-200 rounded-xl hover:border-amber-400 hover:shadow-sm transition-all"
           >
+            {/* Full-card overlay link for easy clicking; sits beneath the button. */}
+            <Link
+              href={`/recipes/${summary.id}`}
+              className="absolute inset-0 rounded-xl"
+              aria-label={summary.title}
+            />
+
             <button
               onClick={(e) => handleDelete(e, summary)}
               disabled={busyId === summary.id}
-              className="absolute top-2 right-2 text-stone-300 hover:text-red-500 transition-colors text-lg leading-none disabled:opacity-40"
+              className="absolute top-2 right-2 z-10 text-stone-300 hover:text-red-500 transition-colors text-lg leading-none disabled:opacity-40"
               aria-label={`Delete ${summary.title}`}
             >
               ×
@@ -131,7 +139,7 @@ export default function RecipeLibraryGrid() {
                 )}
               </div>
             )}
-          </Link>
+          </div>
         ))}
       </div>
     </div>
