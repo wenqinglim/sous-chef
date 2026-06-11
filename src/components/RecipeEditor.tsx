@@ -20,6 +20,18 @@ interface Props {
   onCancel: () => void;
 }
 
+/**
+ * A single editable line carrying a stable id, so React keys survive reordering
+ * and deletion (index keys would make focus/caret jump between rows).
+ */
+interface Line {
+  id: string;
+  text: string;
+}
+
+let lineSeq = 0;
+const newLine = (text: string): Line => ({ id: `line-${lineSeq++}`, text });
+
 function move<T>(arr: T[], from: number, to: number): T[] {
   if (to < 0 || to >= arr.length) return arr;
   const next = [...arr];
@@ -31,10 +43,12 @@ function move<T>(arr: T[], from: number, to: number): T[] {
 export default function RecipeEditor({ recipe, onSaved, onCancel }: Props) {
   const [title, setTitle] = useState(recipe.title);
   const [baseServings, setBaseServings] = useState(recipe.base_servings);
-  const [ingredients, setIngredients] = useState<string[]>(
-    recipe.ingredients.map((ing) => ing.raw_text)
+  const [ingredients, setIngredients] = useState<Line[]>(() =>
+    recipe.ingredients.map((ing) => newLine(ing.raw_text))
   );
-  const [steps, setSteps] = useState<string[]>(recipe.instructions ?? []);
+  const [steps, setSteps] = useState<Line[]>(() =>
+    (recipe.instructions ?? []).map((s) => newLine(s))
+  );
   const [notes, setNotes] = useState(recipe.notes ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +62,7 @@ export default function RecipeEditor({ recipe, onSaved, onCancel }: Props) {
     setError(null);
 
     const builtIngredients: RecipeIngredient[] = ingredients
-      .map((s) => s.trim())
+      .map((l) => l.text.trim())
       .filter(Boolean)
       .map((raw_text) => {
         const p = parseIngredient(raw_text);
@@ -66,7 +80,7 @@ export default function RecipeEditor({ recipe, onSaved, onCancel }: Props) {
       title: title.trim(),
       base_servings: Math.max(1, baseServings),
       ingredients: builtIngredients,
-      instructions: steps.map((s) => s.trim()).filter(Boolean),
+      instructions: steps.map((l) => l.text.trim()).filter(Boolean),
       notes: notes.trim() ? notes.trim() : null,
     };
 
@@ -126,6 +140,11 @@ export default function RecipeEditor({ recipe, onSaved, onCancel }: Props) {
             />
           </div>
         </div>
+        <p className="-mt-3 text-xs text-stone-400">
+          Ingredient amounts below are for this many servings — if you change
+          this number, update the amounts to match so grocery lists scale
+          correctly.
+        </p>
 
         {/* Notes */}
         <div>
@@ -188,8 +207,8 @@ export default function RecipeEditor({ recipe, onSaved, onCancel }: Props) {
 
 interface ListEditorProps {
   label: string;
-  items: string[];
-  onChange: (items: string[]) => void;
+  items: Line[];
+  onChange: (items: Line[]) => void;
   placeholder: string;
   addLabel: string;
   numbered?: boolean;
@@ -206,7 +225,7 @@ function ListEditor({
   multiline,
 }: ListEditorProps) {
   function update(i: number, value: string) {
-    onChange(items.map((it, idx) => (idx === i ? value : it)));
+    onChange(items.map((it, idx) => (idx === i ? { ...it, text: value } : it)));
   }
   function remove(i: number) {
     onChange(items.filter((_, idx) => idx !== i));
@@ -222,7 +241,7 @@ function ListEditor({
       </label>
       <div className="space-y-2">
         {items.map((item, i) => (
-          <div key={i} className="flex items-start gap-2">
+          <div key={item.id} className="flex items-start gap-2">
             {numbered && (
               <span className="mt-2 text-xs text-stone-400 w-4 text-right">
                 {i + 1}.
@@ -230,7 +249,7 @@ function ListEditor({
             )}
             {multiline ? (
               <textarea
-                value={item}
+                value={item.text}
                 onChange={(e) => update(i, e.target.value)}
                 placeholder={placeholder}
                 rows={2}
@@ -239,7 +258,7 @@ function ListEditor({
             ) : (
               <input
                 type="text"
-                value={item}
+                value={item.text}
                 onChange={(e) => update(i, e.target.value)}
                 placeholder={placeholder}
                 className="flex-1 border border-stone-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
@@ -274,7 +293,7 @@ function ListEditor({
         ))}
       </div>
       <button
-        onClick={() => onChange([...items, ""])}
+        onClick={() => onChange([...items, newLine("")])}
         className="mt-2 text-sm font-medium text-amber-700 hover:text-amber-800"
       >
         {addLabel}
