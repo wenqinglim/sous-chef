@@ -85,6 +85,37 @@ function cleanStepText(s: string): string {
 }
 
 /**
+ * Normalize a raw recipeIngredient string from JSON-LD.
+ *
+ * WP Recipe Maker (RecipeTin Eats and many other WordPress recipe sites)
+ * renders the ingredient "notes" field by wrapping it in literal `(...)`.
+ * When the author's note text itself starts with a comma or contains its own
+ * parens, this produces doubled-up artifacts:
+ *
+ *   "1/4 cup flour ((Note 1))"               → "1/4 cup flour (Note 1)"
+ *   "2 garlic cloves (, minced)"             → "2 garlic cloves, minced"
+ *   "chicken breast (, boneless (2 pieces))" → "chicken breast, boneless (2 pieces)"
+ *
+ * Without this, those duplicated brackets leak straight into the recipe
+ * detail UI (raw_text is rendered as-is).
+ */
+export function cleanIngredientText(raw: string): string {
+  let s = raw;
+  let prev: string;
+  do {
+    prev = s;
+    // (, X) → , X  — outer parens wrapping a leading-comma note. Consume any
+    // whitespace before the `(` too, so we don't leave a "foo , X" gap.
+    // Inner pattern allows one level of nested () so "chicken (, foo (bar))"
+    // unwraps cleanly to "chicken, foo (bar)".
+    s = s.replace(/\s*\(\s*,\s*([^()]*(?:\([^()]*\)[^()]*)*)\)/g, ", $1");
+    // ((X)) → (X) — outer parens redundantly wrapping a parenthesized note.
+    s = s.replace(/\(\(([^()]*)\)\)/g, "($1)");
+  } while (s !== prev);
+  return s.replace(/\s+/g, " ").trim();
+}
+
+/**
  * Parse recipeInstructions into a flat array of step strings.
  * Handles the three common JSON-LD shapes:
  *   1. Plain string array:  ["Boil water.", "Add pasta."]
@@ -241,14 +272,17 @@ export function extractFromSchemaOrg(html: string, url: string): ExtractionResul
 
   // Build the Recipe struct
   const recipeId = uuidv4();
-  const ingredients: RecipeIngredient[] = rawIngredients.map((raw) => ({
-    recipe_id: recipeId,
-    raw_text: raw,
-    quantity: null,
-    unit: null,
-    name: raw, // Will be parsed in the normalization step
-    canonical_id: null,
-  }));
+  const ingredients: RecipeIngredient[] = rawIngredients.map((raw) => {
+    const cleaned = cleanIngredientText(raw);
+    return {
+      recipe_id: recipeId,
+      raw_text: cleaned,
+      quantity: null,
+      unit: null,
+      name: cleaned, // Will be parsed in the normalization step
+      canonical_id: null,
+    };
+  });
 
   const recipe: Recipe = {
     id: recipeId,

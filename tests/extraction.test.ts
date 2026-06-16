@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import {
+  cleanIngredientText,
   extractFromSchemaOrg,
   parseInstructions,
   parseServings,
@@ -146,6 +147,54 @@ describe("parseInstructions", () => {
         { "@type": "HowToStep", text: "Real step." },
       ])
     ).toEqual(["Real step."]);
+  });
+});
+
+// ─── cleanIngredientText ──────────────────────────────────────────────────────
+
+describe("cleanIngredientText (WP Recipe Maker artifacts)", () => {
+  test("collapses doubled outer parens to single", () => {
+    expect(cleanIngredientText("1/4 cup flour ((Note 1))")).toBe(
+      "1/4 cup flour (Note 1)"
+    );
+  });
+
+  test("unwraps leading-comma parens into a trailing note", () => {
+    expect(cleanIngredientText("2 garlic cloves (, minced)")).toBe(
+      "2 garlic cloves, minced"
+    );
+  });
+
+  test("unwraps leading-comma parens that themselves contain parens", () => {
+    expect(
+      cleanIngredientText(
+        "500g chicken breast (, boneless and skinless (2 pieces))"
+      )
+    ).toBe("500g chicken breast, boneless and skinless (2 pieces)");
+  });
+
+  test("collapses ((or ...)) substitution notes", () => {
+    expect(
+      cleanIngredientText(
+        "1 1/2 tbsp apple cider vinegar ((or white or other clear vinegar))"
+      )
+    ).toBe("1 1/2 tbsp apple cider vinegar (or white or other clear vinegar)");
+  });
+
+  test("collapses redundant whitespace", () => {
+    expect(cleanIngredientText("3 1/2 tbsp  (50g)  unsalted butter")).toBe(
+      "3 1/2 tbsp (50g) unsalted butter"
+    );
+  });
+
+  test("leaves a single clean paren untouched", () => {
+    expect(cleanIngredientText("1 cup (240 ml) milk")).toBe(
+      "1 cup (240 ml) milk"
+    );
+  });
+
+  test("leaves text with no parens untouched", () => {
+    expect(cleanIngredientText("Salt and pepper")).toBe("Salt and pepper");
   });
 });
 
