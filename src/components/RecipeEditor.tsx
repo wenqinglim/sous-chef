@@ -13,6 +13,7 @@
 import { useState } from "react";
 import type { Recipe, RecipeIngredient } from "@/types";
 import { parseIngredient } from "@/lib/units/parser";
+import { rescaleIngredientLine } from "@/lib/units/rescale";
 
 interface Props {
   recipe: Recipe;
@@ -53,6 +54,23 @@ export default function RecipeEditor({ recipe, onSaved, onCancel }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Servings the ingredient lines are currently expressed in. Starts equal to
+  // baseServings; the user can apply a one-click rescale to bring them back
+  // into sync after bumping baseServings.
+  const [ingredientServings, setIngredientServings] = useState(
+    recipe.base_servings
+  );
+  const ingredientsOutOfSync = baseServings !== ingredientServings;
+
+  function applyRescale() {
+    if (!ingredientsOutOfSync || ingredientServings <= 0) return;
+    const factor = baseServings / ingredientServings;
+    setIngredients((prev) =>
+      prev.map((l) => ({ ...l, text: rescaleIngredientLine(l.text, factor) }))
+    );
+    setIngredientServings(baseServings);
+  }
+
   async function handleSave() {
     if (!title.trim()) {
       setError("Title can't be empty.");
@@ -61,9 +79,17 @@ export default function RecipeEditor({ recipe, onSaved, onCancel }: Props) {
     setSaving(true);
     setError(null);
 
+    // Apply any pending rescale before serializing so we can never persist
+    // `base_servings` that disagrees with the ingredient text. The user-facing
+    // banner makes the rescale explicit, but Save is the source of truth.
+    const factor =
+      ingredientsOutOfSync && ingredientServings > 0
+        ? baseServings / ingredientServings
+        : 1;
     const builtIngredients: RecipeIngredient[] = ingredients
       .map((l) => l.text.trim())
       .filter(Boolean)
+      .map((text) => (factor === 1 ? text : rescaleIngredientLine(text, factor)))
       .map((raw_text) => {
         const p = parseIngredient(raw_text);
         return {
@@ -140,11 +166,26 @@ export default function RecipeEditor({ recipe, onSaved, onCancel }: Props) {
             />
           </div>
         </div>
-        <p className="-mt-3 text-xs text-stone-400">
-          Ingredient amounts below are for this many servings — if you change
-          this number, update the amounts to match so grocery lists scale
-          correctly.
-        </p>
+        {ingredientsOutOfSync ? (
+          <div className="-mt-3 flex items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <span>
+              Ingredients are still written for {ingredientServings} servings.
+              They&apos;ll auto-rescale to {baseServings} on Save — preview now?
+            </span>
+            <button
+              type="button"
+              onClick={applyRescale}
+              className="shrink-0 px-2 py-1 text-xs font-medium rounded bg-amber-600 text-white hover:bg-amber-700"
+            >
+              Rescale now
+            </button>
+          </div>
+        ) : (
+          <p className="-mt-3 text-xs text-stone-400">
+            Ingredient amounts below are for this many servings. Change this
+            number and they&apos;ll auto-rescale on Save.
+          </p>
+        )}
 
         {/* Notes */}
         <div>

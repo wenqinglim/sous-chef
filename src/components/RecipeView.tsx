@@ -13,6 +13,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Recipe } from "@/types";
 import { addToMealPlan } from "@/lib/storage/localStorage";
+import { rescaleIngredientLine } from "@/lib/units/rescale";
 
 interface Props {
   recipe: Recipe;
@@ -22,11 +23,15 @@ interface Props {
 export default function RecipeView({ recipe, onCustomize }: Props) {
   const router = useRouter();
   const [added, setAdded] = useState(false);
+  const [viewServings, setViewServings] = useState(recipe.base_servings);
   const instructions = recipe.instructions ?? [];
   const notes = recipe.notes?.trim();
 
+  const scaleFactor = viewServings / recipe.base_servings;
+  const isScaled = viewServings !== recipe.base_servings;
+
   function handleAddToGroceryList() {
-    addToMealPlan(recipe, recipe.base_servings);
+    addToMealPlan(recipe, viewServings);
     setAdded(true);
     router.push("/grocery-list");
   }
@@ -49,6 +54,46 @@ export default function RecipeView({ recipe, onCustomize }: Props) {
 
         <div className="mt-1 text-sm text-stone-500">
           Base {recipe.base_servings} servings
+        </div>
+
+        <div className="mt-3 flex items-center gap-2 text-sm">
+          <span className="text-xs text-stone-500">Scale to:</span>
+          <button
+            onClick={() => setViewServings(Math.max(1, viewServings - 1))}
+            className="w-6 h-6 flex items-center justify-center rounded border border-stone-300 text-stone-600 hover:bg-stone-100"
+            aria-label="Decrease servings"
+          >
+            −
+          </button>
+          <input
+            type="number"
+            min={1}
+            max={100}
+            value={viewServings}
+            onChange={(e) =>
+              setViewServings(
+                Math.min(100, Math.max(1, parseInt(e.target.value) || 1))
+              )
+            }
+            className="w-14 text-center border border-stone-300 rounded px-1 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500"
+            aria-label="Servings"
+          />
+          <button
+            onClick={() => setViewServings(Math.min(100, viewServings + 1))}
+            className="w-6 h-6 flex items-center justify-center rounded border border-stone-300 text-stone-600 hover:bg-stone-100"
+            aria-label="Increase servings"
+          >
+            +
+          </button>
+          <span className="text-xs text-stone-400">servings</span>
+          {isScaled && (
+            <button
+              onClick={() => setViewServings(recipe.base_servings)}
+              className="ml-1 text-xs text-amber-700 hover:text-amber-800 underline"
+            >
+              Reset
+            </button>
+          )}
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -87,12 +132,23 @@ export default function RecipeView({ recipe, onCustomize }: Props) {
         )}
 
         <section className="mt-6">
-          <h2 className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-2">
-            Ingredients
-          </h2>
+          <div className="flex items-baseline justify-between mb-2">
+            <h2 className="text-xs font-semibold text-stone-500 uppercase tracking-wide">
+              Ingredients
+            </h2>
+            {isScaled && (
+              <span className="text-xs text-amber-700">
+                scaled for {viewServings} servings · not saved
+              </span>
+            )}
+          </div>
           <ul className="list-disc list-inside space-y-1 text-sm text-stone-700">
             {recipe.ingredients.map((ing, i) => (
-              <li key={i}>{ing.raw_text}</li>
+              <li key={i}>
+                {isScaled
+                  ? rescaleIngredientLine(ing.raw_text, scaleFactor)
+                  : ing.raw_text}
+              </li>
             ))}
           </ul>
         </section>

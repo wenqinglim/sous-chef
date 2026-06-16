@@ -13,29 +13,11 @@
  */
 
 import type { ParsedQuantity } from "@/types";
-
-// ─── Unicode fraction map ─────────────────────────────────────────────────────
-
-const UNICODE_FRACTIONS: Record<string, number> = {
-  "½": 0.5,
-  "¼": 0.25,
-  "¾": 0.75,
-  "⅓": 1 / 3,
-  "⅔": 2 / 3,
-  "⅕": 0.2,
-  "⅖": 0.4,
-  "⅗": 0.6,
-  "⅘": 0.8,
-  "⅙": 1 / 6,
-  "⅚": 5 / 6,
-  "⅛": 0.125,
-  "⅜": 0.375,
-  "⅝": 0.625,
-  "⅞": 0.875,
-};
-
-// Unicode fraction chars as a string (for character classes)
-const UF = Object.keys(UNICODE_FRACTIONS).join("");
+import {
+  UNICODE_FRACTIONS,
+  UF,
+  extractLeadingNumeric,
+} from "./numeric-extract";
 
 // ─── Known unit tokens (ordered: multi-word first, longest first) ─────────────
 
@@ -207,93 +189,20 @@ export function parseNumber(token: string): number | null {
 // ─── Leading number extraction ────────────────────────────────────────────────
 
 /**
- * Try to extract a leading quantity from the start of a string.
- * Returns { quantity, consumed } where consumed is the number of chars consumed,
- * or null if no leading number found.
+ * Extract the leading quantity from `s`. Ranges are reduced to their midpoint
+ * — this is what the downstream pipeline math expects ("3-4 cloves" → 3.5).
+ * Returns null when no recognizable numeric prefix is present.
  *
- * Order of attempts (most specific → least specific):
- *   1. Range:                 "3-4" | "3 to 4" | "3–4"
- *   2. Mixed number:          "2 1/2"
- *   3. Integer + unicode:     "1½"
- *   4. Plain fraction:        "1/4"
- *   5. Unicode fraction:      "½"
- *   6. Decimal / integer:     "1.5" | "3"
+ * The set of accepted numeric forms (and their precedence) lives in
+ * `extractLeadingNumeric` so that the rescaler shares it.
  */
 function extractLeadingNumber(
   s: string
 ): { quantity: number; consumed: number } | null {
-  // 1. Range: number + separator + number
-  //    We need to try this carefully — we'll check if what follows the first
-  //    number is a range separator followed by another number.
-  const rangeMatch = tryRange(s);
-  if (rangeMatch) return rangeMatch;
-
-  // 2. Mixed number: digit(s) + whitespace + digit(s)/digit(s)
-  const mixed = s.match(/^(\d+\s+\d+\/\d+)/);
-  if (mixed) {
-    const qty = parseNumber(mixed[1]);
-    if (qty !== null) return { quantity: qty, consumed: mixed[1].length };
-  }
-
-  // 2b. Integer + space + unicode fraction: "2 ½"
-  const spaceUnicode = s.match(new RegExp(`^(\\d+)\\s+([${UF}])(?=\\s|$)`));
-  if (spaceUnicode) {
-    const frac = UNICODE_FRACTIONS[spaceUnicode[2]];
-    if (frac !== undefined) {
-      const qty = parseInt(spaceUnicode[1], 10) + frac;
-      return { quantity: qty, consumed: spaceUnicode[0].length };
-    }
-  }
-
-  // 3. Integer + unicode fraction (no space): "1½"
-  const intUnicode = s.match(new RegExp(`^(\\d+[${UF}])`));
-  if (intUnicode) {
-    const qty = parseNumber(intUnicode[1]);
-    if (qty !== null) return { quantity: qty, consumed: intUnicode[1].length };
-  }
-
-  // 4. Plain fraction: "1/4"
-  const fraction = s.match(/^(\d+\/\d+)/);
-  if (fraction) {
-    const qty = parseNumber(fraction[1]);
-    if (qty !== null) return { quantity: qty, consumed: fraction[1].length };
-  }
-
-  // 5. Unicode fraction alone
-  if (s.length > 0 && s[0] in UNICODE_FRACTIONS) {
-    return { quantity: UNICODE_FRACTIONS[s[0]], consumed: 1 };
-  }
-
-  // 6. Decimal or integer
-  const num = s.match(/^(\d+(?:[.,]\d+)?)/);
-  if (num) {
-    const qty = parseNumber(num[1]);
-    if (qty !== null) return { quantity: qty, consumed: num[1].length };
-  }
-
-  return null;
-}
-
-/**
- * Try to parse a range like "3-4" or "3 to 4" from the start of s.
- * Returns midpoint as quantity, or null if no range.
- */
-function tryRange(s: string): { quantity: number; consumed: number } | null {
-  // A single numeric endpoint: mixed ("2 1/2"), int+unicode ("1½"/"1 ½"),
-  // bare unicode ("½"), fraction ("1/4"), or decimal/integer.
-  // Ordered specific → general so e.g. "1 ½" isn't truncated to "1".
-  const NUM = `(?:\\d+\\s+\\d+\\/\\d+|\\d+\\s*[${UF}]|[${UF}]|\\d+\\/\\d+|\\d+(?:[.,]\\d+)?)`;
-  // Pattern: number + optional_space + separator + optional_space + number
-  // The separator is -, –, —, or "to"
-  const rangeRe = new RegExp(`^(${NUM})\\s*(?:-|–|—|to)\\s*(${NUM})`);
-  const m = s.match(rangeRe);
-  if (!m) return null;
-
-  const lo = parseNumber(m[1]);
-  const hi = parseNumber(m[2]);
-  if (lo === null || hi === null) return null;
-
-  return { quantity: (lo + hi) / 2, consumed: m[0].length };
+  const ex = extractLeadingNumeric(s);
+  if (!ex) return null;
+  const quantity = ex.hi != null ? (ex.lo + ex.hi) / 2 : ex.lo;
+  return { quantity, consumed: ex.consumed };
 }
 
 // ─── Cleaning patterns ────────────────────────────────────────────────────────
