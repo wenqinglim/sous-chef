@@ -13,6 +13,7 @@
 import { useState } from "react";
 import type { Recipe, RecipeIngredient } from "@/types";
 import { parseIngredient } from "@/lib/units/parser";
+import { rescaleIngredientLine } from "@/lib/units/rescale";
 
 interface Props {
   recipe: Recipe;
@@ -52,6 +53,23 @@ export default function RecipeEditor({ recipe, onSaved, onCancel }: Props) {
   const [notes, setNotes] = useState(recipe.notes ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Servings the ingredient lines are currently expressed in. Starts equal to
+  // baseServings; the user can apply a one-click rescale to bring them back
+  // into sync after bumping baseServings.
+  const [ingredientServings, setIngredientServings] = useState(
+    recipe.base_servings
+  );
+  const ingredientsOutOfSync = baseServings !== ingredientServings;
+
+  function applyRescale() {
+    if (!ingredientsOutOfSync || ingredientServings <= 0) return;
+    const factor = baseServings / ingredientServings;
+    setIngredients((prev) =>
+      prev.map((l) => ({ ...l, text: rescaleIngredientLine(l.text, factor) }))
+    );
+    setIngredientServings(baseServings);
+  }
 
   async function handleSave() {
     if (!title.trim()) {
@@ -140,11 +158,26 @@ export default function RecipeEditor({ recipe, onSaved, onCancel }: Props) {
             />
           </div>
         </div>
-        <p className="-mt-3 text-xs text-stone-400">
-          Ingredient amounts below are for this many servings — if you change
-          this number, update the amounts to match so grocery lists scale
-          correctly.
-        </p>
+        {ingredientsOutOfSync ? (
+          <div className="-mt-3 flex items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <span>
+              Ingredients are still written for {ingredientServings} servings.
+              Rescale them to {baseServings}?
+            </span>
+            <button
+              type="button"
+              onClick={applyRescale}
+              className="shrink-0 px-2 py-1 text-xs font-medium rounded bg-amber-600 text-white hover:bg-amber-700"
+            >
+              Rescale ingredients
+            </button>
+          </div>
+        ) : (
+          <p className="-mt-3 text-xs text-stone-400">
+            Ingredient amounts below are for this many servings. Change this
+            number and click <em>Rescale ingredients</em> to auto-update them.
+          </p>
+        )}
 
         {/* Notes */}
         <div>
