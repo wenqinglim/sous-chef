@@ -129,3 +129,37 @@ describe("rescaleIngredientLine — leading quantity rewritten", () => {
     expect(rescaleIngredientLine("1 tsp cumin", 0.42)).toBe("0.42 tsp cumin");
   });
 });
+
+describe("rescaleIngredientLine — parenthetical unit equivalent", () => {
+  test("scales metric equivalent in parens alongside the leading qty", () => {
+    expect(rescaleIngredientLine("1 cup (240 ml) milk", 2)).toBe(
+      "2 cup (480 ml) milk"
+    );
+  });
+
+  test("scales gram equivalent in parens", () => {
+    expect(rescaleIngredientLine("1 cup (120 g) flour", 3)).toBe(
+      "3 cup (360 g) flour"
+    );
+  });
+
+  test("leaves package size in parens untouched when leading qty has no unit", () => {
+    // "1 (15 oz) can chickpeas" — the 15 oz describes a can label, not an
+    // equivalent of the leading 1, so it must NOT scale.
+    expect(rescaleIngredientLine("1 (15 oz) can chickpeas", 2)).toBe(
+      "2 (15 oz) can chickpeas"
+    );
+  });
+
+  test("preserves trailing text after the parens", () => {
+    expect(
+      rescaleIngredientLine("1 tbsp (15 ml) soy sauce, divided", 2)
+    ).toBe("2 tbsp (30 ml) soy sauce, divided");
+  });
+
+  test("handles fractional metric equivalent", () => {
+    expect(rescaleIngredientLine("½ cup (120 ml) cream", 2)).toBe(
+      "1 cup (240 ml) cream"
+    );
+  });
+});

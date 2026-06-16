@@ -71,13 +71,15 @@ export default function RecipeView({ recipe, onCustomize }: Props) {
             max={100}
             value={viewServings}
             onChange={(e) =>
-              setViewServings(Math.max(1, parseInt(e.target.value) || 1))
+              setViewServings(
+                Math.min(100, Math.max(1, parseInt(e.target.value) || 1))
+              )
             }
             className="w-14 text-center border border-stone-300 rounded px-1 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500"
             aria-label="Servings"
           />
           <button
-            onClick={() => setViewServings(viewServings + 1)}
+            onClick={() => setViewServings(Math.min(100, viewServings + 1))}
             className="w-6 h-6 flex items-center justify-center rounded border border-stone-300 text-stone-600 hover:bg-stone-100"
             aria-label="Increase servings"
           >

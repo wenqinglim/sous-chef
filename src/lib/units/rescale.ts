@@ -5,100 +5,31 @@
  * substitutes it back, preserving the unit, ingredient name, and any
  * prep/parenthetical text that follows.
  *
- * Handles every numeric form the extractor produces:
- *   - integer ("2 cups flour")
- *   - decimal ("1.5 lb chicken")
- *   - plain fraction ("1/4 tsp salt")
- *   - mixed ("1 1/2 cups water")
- *   - integer + unicode fraction ("1½ cups milk", "1 ½ cups milk")
- *   - bare unicode fraction ("½ tsp pepper")
- *   - range ("3-4 cloves garlic", "3 to 4 cloves")
+ * Accepts every numeric form `extractLeadingNumeric` recognizes (integer,
+ * decimal, plain/mixed fractions, unicode fractions, integer + unicode
+ * fraction with or without space, ranges).
  *
- * If the line has no parseable leading quantity (e.g. "salt to taste") or the
- * scale factor is 1 / non-finite / non-positive, the original text is returned
- * unchanged. The scaled value is rendered as a mixed-number with unicode
+ * Parenthetical metric equivalents:
+ *   For lines shaped like `N <unit> (M <unit>) <name>` (the common
+ *   "1 cup (240 ml) milk" extractor output), the parenthetical quantity is
+ *   scaled in lockstep with the leading number so the equivalence stays
+ *   valid. Bare-number leading qty followed by parens — e.g.
+ *   "1 (15 oz) can chickpeas" — is left untouched in the parens (the parens
+ *   describes a package size, not an equivalent).
+ *
+ * Limitations: other embedded numbers (e.g. "200 g flour, plus 1 tbsp for
+ * dusting") are NOT scaled. We don't have enough signal to tell a quantity
+ * from a label (think "1 (15 oz) can" or "10 minutes"), and silently scaling
+ * the wrong token would be worse than leaving the line alone.
+ *
+ * If the scale factor is 1 / non-finite / non-positive, or the line has no
+ * parseable leading quantity ("salt to taste"), the original text is returned
+ * unchanged. The scaled value is rendered as a mixed number with unicode
  * fractions when it lands close to a common cooking fraction (¼, ⅓, ½, ⅔, ¾,
- * etc.), or as a trimmed decimal otherwise.
+ * …), or as a trimmed decimal otherwise.
  */
 
-const UNICODE_FRACTIONS: Record<string, number> = {
-  "½": 0.5,
-  "¼": 0.25,
-  "¾": 0.75,
-  "⅓": 1 / 3,
-  "⅔": 2 / 3,
-  "⅕": 0.2,
-  "⅖": 0.4,
-  "⅗": 0.6,
-  "⅘": 0.8,
-  "⅙": 1 / 6,
-  "⅚": 5 / 6,
-  "⅛": 0.125,
-  "⅜": 0.375,
-  "⅝": 0.625,
-  "⅞": 0.875,
-};
-
-const UF = Object.keys(UNICODE_FRACTIONS).join("");
-
-interface Extracted {
-  /** Effective numeric value(s). For ranges, both endpoints are present. */
-  lo: number;
-  hi: number | null;
-  /** Number of leading characters of the source consumed by this token. */
-  consumed: number;
-}
-
-function parseNumberToken(s: string): number | null {
-  const t = s.trim();
-  if (!t) return null;
-  if (t in UNICODE_FRACTIONS) return UNICODE_FRACTIONS[t];
-
-  // "N frac" (space) or "Nfrac" (no space)
-  const intUnicode = t.match(new RegExp(`^(\\d+)\\s*([${UF}])$`));
-  if (intUnicode) return parseInt(intUnicode[1], 10) + UNICODE_FRACTIONS[intUnicode[2]];
-
-  const mixed = t.match(/^(\d+)\s+(\d+)\/(\d+)$/);
-  if (mixed) {
-    const den = parseInt(mixed[3], 10);
-    if (den === 0) return null;
-    return parseInt(mixed[1], 10) + parseInt(mixed[2], 10) / den;
-  }
-
-  const frac = t.match(/^(\d+)\/(\d+)$/);
-  if (frac) {
-    const den = parseInt(frac[2], 10);
-    if (den === 0) return null;
-    return parseInt(frac[1], 10) / den;
-  }
-
-  const decimal = t.match(/^\d+[.,]\d+$/);
-  if (decimal) return parseFloat(t.replace(",", "."));
-
-  if (/^\d+$/.test(t)) return parseInt(t, 10);
-
-  return null;
-}
-
-const NUM = `(?:\\d+\\s+\\d+\\/\\d+|\\d+\\s*[${UF}]|[${UF}]|\\d+\\/\\d+|\\d+(?:[.,]\\d+)?)`;
-const RANGE_RE = new RegExp(`^(${NUM})\\s*(?:-|–|—|to)\\s*(${NUM})`);
-const SINGLE_RE = new RegExp(`^(${NUM})`);
-
-function extractLeading(s: string): Extracted | null {
-  // Range first so e.g. "3-4" isn't truncated to "3".
-  const rm = s.match(RANGE_RE);
-  if (rm) {
-    const lo = parseNumberToken(rm[1]);
-    const hi = parseNumberToken(rm[2]);
-    if (lo != null && hi != null) return { lo, hi, consumed: rm[0].length };
-  }
-  const sm = s.match(SINGLE_RE);
-  if (sm) {
-    const v = parseNumberToken(sm[1]);
-    if (v != null) return { lo: v, hi: null, consumed: sm[0].length };
-  }
-  return null;
-}
+import { extractLeadingNumeric } from "./numeric-extract";
 
 const FRACTION_GLYPHS: Array<[number, string]> = [
   [1 / 8, "⅛"],
@@ -151,9 +82,31 @@ export function formatScaledQty(n: number): string {
     return `${whole}${bestGlyph}`;
   }
 
-  // Decimal fallback: 2 decimals for small values, integer for larger.
-  if (n >= 10) return String(Math.round(n));
+  // Decimal fallback for sub-10 values that didn't snap to a fraction glyph.
   return String(Math.round(n * 100) / 100);
+}
+
+/**
+ * Match a parenthetical unit equivalent immediately following a unit token,
+ * e.g. in "1 cup (240 ml) milk" the substring " cup (240 ml)". The leading
+ * \s+\S+ matches the unit (cup/tbsp/g/oz/…); the inner number-unit pair is
+ * what we scale.
+ */
+const PAREN_EQUIVALENT_RE =
+  /^(\s+[^\s()]+\s*\()([0-9.,/¼½¾⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞\s]+?)(\s*[a-zA-Z]+\s*\))/;
+
+function scaleParentheticalEquivalent(
+  tail: string,
+  scaleFactor: number
+): string {
+  const m = tail.match(PAREN_EQUIVALENT_RE);
+  if (!m) return tail;
+  const innerNumber = m[2].trim();
+  const parsed = extractLeadingNumeric(innerNumber);
+  if (!parsed || parsed.consumed !== innerNumber.length) return tail;
+  const scaled = formatScaledQty(parsed.lo * scaleFactor);
+  const replacement = `${m[1]}${scaled}${m[3]}`;
+  return replacement + tail.slice(m[0].length);
 }
 
 export function rescaleIngredientLine(rawText: string, scaleFactor: number): string {
@@ -166,15 +119,17 @@ export function rescaleIngredientLine(rawText: string, scaleFactor: number): str
     return rawText;
   }
 
-  const extracted = extractLeading(rawText);
+  const extracted = extractLeadingNumeric(rawText);
   if (!extracted) return rawText;
 
   const tail = rawText.slice(extracted.consumed);
+  const scaledTail = scaleParentheticalEquivalent(tail, scaleFactor);
+
   if (extracted.hi != null) {
     const lo = formatScaledQty(extracted.lo * scaleFactor);
     const hi = formatScaledQty(extracted.hi * scaleFactor);
-    return `${lo}-${hi}${tail}`;
+    return `${lo}-${hi}${scaledTail}`;
   }
   const v = formatScaledQty(extracted.lo * scaleFactor);
-  return `${v}${tail}`;
+  return `${v}${scaledTail}`;
 }
