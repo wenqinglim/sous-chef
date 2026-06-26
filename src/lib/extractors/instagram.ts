@@ -15,7 +15,7 @@
 
 import * as cheerio from "cheerio";
 import { extractWithLlm, type LlmExtractionResult } from "@/lib/extractors/llm-fallback";
-import { UNIT_TOKENS } from "@/lib/units/parser";
+import { UNIT_RE_SOURCE } from "@/lib/units/parser";
 
 const INSTAGRAM_HOSTS = new Set([
   "instagram.com",
@@ -37,32 +37,45 @@ export function isInstagramUrl(url: string): boolean {
 // ─── Caption extraction ─────────────────────────────────────────────────────
 
 /**
- * Instagram's og:description / meta description wraps the caption in a
- * "1,234 likes, 56 comments - username on January 1, 2024: "<caption>""
- * preamble. Strip that engagement/attribution prefix and surrounding quotes.
+ * Instagram's og:description / meta description wraps the caption in an
+ * attribution preamble. Strip that prefix and any surrounding quotes.
+ *
+ * Formats seen in the wild (the comment count, and sometimes the counts
+ * entirely, can be absent):
+ *   "1,234 likes, 56 comments - user on January 1, 2024: "<caption>""
+ *   "1,234 likes - user on January 1, 2024: "<caption>""
+ *   "user on Instagram: "<caption>""
  */
 function stripCaptionPreamble(raw: string): string {
   let s = raw.trim();
-  // Drop the "<n> likes, <n> comments - <user> on <date>:" lead-in if present.
-  s = s.replace(
-    /^[\d,.\sKMB]*likes?[\s\S]*?comments?\s*-\s*[^:]*?:\s*/i,
-    ""
-  );
+  // Engagement-count lead-in: anchored on a literal "likes" so a real caption
+  // ("Garlic Noodles: …") is never touched. The lazy run swallows an optional
+  // ", N comments - user on <date>" tail up to the first colon.
+  s = s.replace(/^[\d,.\sKMB]*likes?\b[^:\n]*?:\s*/i, "");
+  // Bare "<user> on Instagram:" attribution with no engagement counts.
+  s = s.replace(/^[^:\n]*?\bon Instagram\b\s*:\s*/i, "");
   // Unwrap a single layer of surrounding quotes (straight or curly).
   s = s.replace(/^["“”']+/, "").replace(/["“”']+$/, "");
   return s.trim();
 }
 
 /**
- * Walk a parsed JSON-LD value looking for the longest caption-ish string field
- * (`caption`, `articleBody`, `description`). Instagram sometimes embeds a fuller
- * caption here than the truncated og:description meta tag.
+ * Walk a parsed JSON-LD value for the post caption. Prefers an explicit
+ * `caption` field, then `articleBody`, then `description` — only falling back to
+ * `description` last avoids picking up boilerplate ("See photos and videos
+ * from …") that may be longer than the real caption. Length breaks ties within
+ * a single field.
  */
 function findCaptionInJsonLd(value: unknown): string | null {
-  let best: string | null = null;
-  const consider = (s: unknown) => {
-    if (typeof s === "string" && (best === null || s.length > best.length)) {
-      best = s;
+  const longest: Record<"caption" | "articleBody" | "description", string | null> = {
+    caption: null,
+    articleBody: null,
+    description: null,
+  };
+  const consider = (field: keyof typeof longest, s: unknown) => {
+    if (typeof s === "string") {
+      const cur = longest[field];
+      if (cur === null || s.length > cur.length) longest[field] = s;
     }
   };
   const walk = (node: unknown) => {
@@ -70,14 +83,14 @@ function findCaptionInJsonLd(value: unknown): string | null {
       node.forEach(walk);
     } else if (node && typeof node === "object") {
       const obj = node as Record<string, unknown>;
-      consider(obj.caption);
-      consider(obj.articleBody);
-      consider(obj.description);
+      consider("caption", obj.caption);
+      consider("articleBody", obj.articleBody);
+      consider("description", obj.description);
       Object.values(obj).forEach(walk);
     }
   };
   walk(value);
-  return best;
+  return longest.caption ?? longest.articleBody ?? longest.description;
 }
 
 /**
@@ -130,10 +143,9 @@ const RECIPE_KEYWORD_RE =
   /\b(ingredients?|recipe|method|directions?|instructions?|serves?|servings?|prep(?:\s|aration)|cook(?:ing)?\s*time|preheat|combine|stir|whisk|bake)\b/i;
 
 // "2 cups", "½ tsp", "200g", "1 tbsp" — a number (digit or unicode fraction)
-// directly followed by a known unit token. Reuses the parser's unit vocabulary
-// so the heuristic stays in step with what we can actually parse.
-const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const UNIT_RE_SOURCE = UNIT_TOKENS.map(escapeRegex).join("|");
+// directly followed by a known unit token. Reuses the parser's exact unit
+// alternation (UNIT_RE_SOURCE) so the heuristic stays in step with what we can
+// actually parse, with no second copy to drift.
 const QUANTITY_UNIT_RE = new RegExp(
   `[\\d\\u00BC-\\u00BE\\u2150-\\u215E]\\s*(?:${UNIT_RE_SOURCE})\\b`,
   "gi"
@@ -170,10 +182,13 @@ export async function extractFromInstagram(
 ): Promise<LlmExtractionResult> {
   const caption = extractInstagramCaption(html);
   if (!caption) {
+    // Couldn't get usable content out of the page (login wall / private /
+    // removed) — that's an upstream-fetch problem, not "this isn't a recipe".
     return {
       recipe: null,
       error:
         "Couldn't read this Instagram reel's caption. It may be private, removed, or require login.",
+      kind: "extractor_error",
     };
   }
 
@@ -182,6 +197,7 @@ export async function extractFromInstagram(
       recipe: null,
       error:
         "This Instagram caption doesn't look like a recipe. Make sure the reel's caption includes the ingredients and steps.",
+      kind: "no_recipe",
     };
   }
 

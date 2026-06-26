@@ -81,6 +81,48 @@ describe("extractInstagramCaption", () => {
     );
   });
 
+  test("strips the preamble when the reel has no comments", () => {
+    const html = `<html><head>
+      <meta property="og:description" content="987 likes - cook on May 1, 2024: &quot;1 cup flour, 2 eggs. Ingredients below.&quot;" />
+    </head><body></body></html>`;
+    expect(extractInstagramCaption(html)).toBe(
+      "1 cup flour, 2 eggs. Ingredients below."
+    );
+  });
+
+  test("strips a bare 'user on Instagram:' attribution with no counts", () => {
+    const html = `<html><head>
+      <meta property="og:description" content="cook on Instagram: &quot;1 cup flour, 2 eggs. Ingredients below.&quot;" />
+    </head><body></body></html>`;
+    expect(extractInstagramCaption(html)).toBe(
+      "1 cup flour, 2 eggs. Ingredients below."
+    );
+  });
+
+  test("does not strip a real caption that merely contains a colon", () => {
+    const html = `<html><head>
+      <meta name="description" content="Garlic Noodles: 200g noodles, 3 tbsp butter. Method below." />
+    </head><body></body></html>`;
+    expect(extractInstagramCaption(html)).toBe(
+      "Garlic Noodles: 200g noodles, 3 tbsp butter. Method below."
+    );
+  });
+
+  test("prefers the JSON-LD 'caption' field over a longer boilerplate description", () => {
+    const html = `<html><head>
+      <script type="application/ld+json">
+      {
+        "@type": "VideoObject",
+        "description": "See photos and videos from this and thousands of other creators on Instagram. Follow for daily updates and more.",
+        "caption": "200g noodles, 3 tbsp butter, 4 cloves garlic. Method: cook and toss."
+      }
+      </script>
+    </head><body></body></html>`;
+    expect(extractInstagramCaption(html)).toBe(
+      "200g noodles, 3 tbsp butter, 4 cloves garlic. Method: cook and toss."
+    );
+  });
+
   test("returns null when the page exposes no caption (login wall)", () => {
     const html = `<html><head><title>Login • Instagram</title></head><body></body></html>`;
     expect(extractInstagramCaption(html)).toBeNull();
@@ -119,17 +161,18 @@ describe("looksLikeRecipe", () => {
 // ─── extractFromInstagram ─────────────────────────────────────────────────────
 
 describe("extractFromInstagram", () => {
-  test("rejects a non-recipe reel WITHOUT calling the LLM", async () => {
+  test("rejects a non-recipe reel as 'no_recipe' WITHOUT calling the LLM", async () => {
     const result = await extractFromInstagram(
       nonRecipeHtml,
       "https://instagram.com/reel/ABC123/"
     );
     expect(result.recipe).toBeNull();
     expect(result.error).toMatch(/doesn't look like a recipe/i);
+    expect(result.kind).toBe("no_recipe");
     expect(mockedExtractWithLlm).not.toHaveBeenCalled();
   });
 
-  test("rejects a login-walled page WITHOUT calling the LLM", async () => {
+  test("flags a login-walled page as 'extractor_error' WITHOUT calling the LLM", async () => {
     const html = `<html><head><title>Login</title></head><body></body></html>`;
     const result = await extractFromInstagram(
       html,
@@ -137,7 +180,23 @@ describe("extractFromInstagram", () => {
     );
     expect(result.recipe).toBeNull();
     expect(result.error).toMatch(/caption/i);
+    expect(result.kind).toBe("extractor_error");
     expect(mockedExtractWithLlm).not.toHaveBeenCalled();
+  });
+
+  test("propagates an LLM/infra failure as 'extractor_error'", async () => {
+    mockedExtractWithLlm.mockResolvedValue({
+      recipe: null,
+      error: "LLM API call failed: network down",
+      kind: "extractor_error",
+    });
+    const result = await extractFromInstagram(
+      recipeHtml,
+      "https://instagram.com/reel/ABC123/"
+    );
+    expect(mockedExtractWithLlm).toHaveBeenCalledTimes(1);
+    expect(result.recipe).toBeNull();
+    expect(result.kind).toBe("extractor_error");
   });
 
   test("delegates a recipe caption to the LLM extractor", async () => {

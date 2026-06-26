@@ -90,9 +90,13 @@ export async function POST(request: NextRequest) {
     if (igResult.recipe) {
       return saveExtracted(igResult.recipe);
     }
+    // 422 only when the caption genuinely isn't a recipe; an extractor/LLM
+    // failure (login wall, API outage, missing key) is a 502-class problem and
+    // shouldn't be reported to the user as "not a recipe".
+    const status = igResult.kind === "no_recipe" ? 422 : 502;
     return NextResponse.json(
       { error: igResult.error ?? "Could not find a recipe in this Instagram caption" },
-      { status: 422 }
+      { status }
     );
   }
 
