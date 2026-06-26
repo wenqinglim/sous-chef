@@ -16,6 +16,7 @@ import { z } from "zod";
 import type { Recipe } from "@/types";
 import { extractFromSchemaOrg, extractBodyText } from "@/lib/extractors/schema-org";
 import { extractWithLlm } from "@/lib/extractors/llm-fallback";
+import { isInstagramUrl, extractFromInstagram } from "@/lib/extractors/instagram";
 import { safeFetch, BlockedUrlError } from "@/lib/extractors/safe-fetch";
 import { upsertRecipeByUrl } from "@/lib/db/recipes";
 
@@ -79,6 +80,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: `Failed to fetch URL: ${message}` },
       { status: 502 }
+    );
+  }
+
+  // Instagram reels have no recipe JSON-LD — the recipe lives in the caption.
+  // Branch to the caption-based extractor instead of scraping the login wall.
+  if (isInstagramUrl(url)) {
+    const igResult = await extractFromInstagram(html, url);
+    if (igResult.recipe) {
+      return saveExtracted(igResult.recipe);
+    }
+    return NextResponse.json(
+      { error: igResult.error ?? "Could not find a recipe in this Instagram caption" },
+      { status: 422 }
     );
   }
 

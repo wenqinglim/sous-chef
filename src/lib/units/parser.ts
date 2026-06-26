@@ -21,7 +21,7 @@ import {
 
 // ─── Known unit tokens (ordered: multi-word first, longest first) ─────────────
 
-const UNIT_TOKENS = [
+export const UNIT_TOKENS = [
   // multi-word — must precede single-word to avoid partial matches
   "fl. oz.",
   "fl. oz",

@@ -59,13 +59,16 @@ export default function AddRecipeForm() {
       <label className="block text-sm font-medium text-stone-700 mb-1">
         Add a recipe by URL
       </label>
+      <p className="text-xs text-stone-500 mb-2">
+        A recipe website, or an Instagram reel whose caption has the full recipe.
+      </p>
       <div className="flex gap-2 items-stretch flex-wrap">
         <input
           type="url"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-          placeholder="https://recipetineats.com/..."
+          placeholder="https://recipetineats.com/… or instagram.com/reel/…"
           className="flex-1 min-w-60 border border-stone-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
         />
         <button

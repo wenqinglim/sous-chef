@@ -41,7 +41,7 @@ DATABASE_URL=postgresql://...   # Neon connection string; injected by the Vercel
 npm install
 npm run db:deploy  # apply Prisma migrations (once per database)
 npm run dev        # http://localhost:3000
-npm test           # run all tests (275 passing; no DB needed — Prisma is mocked)
+npm test           # run all tests (332 passing; no DB needed — Prisma is mocked)
 npm run build      # production build: prisma generate → migrate deploy → next build
 ```
 
@@ -53,10 +53,12 @@ npm run build      # production build: prisma generate → migrate deploy → ne
 
 ## Test Coverage
 
-275 tests across 6 suites:
+332 tests across 8 suites:
 - `tests/units.test.ts` — unit conversions + ingredient text parser, incl. mixed/unicode ranges
 - `tests/normalization.test.ts` — registry lookup, alias matching, soy sauce disambiguation, messy-name robustness
 - `tests/extraction.test.ts` — schema.org extraction for all 4 target sites + `parseInstructions` for every JSON-LD instruction shape
+- `tests/instagram.test.ts` — Instagram URL detection, caption extraction (JSON-LD + og:description), recipe heuristic gate, and orchestration (LLM mocked)
+- `tests/rescale.test.ts` — ingredient quantity rescaling by servings
 - `tests/pipeline.test.ts` — aggregate, purchase planning, full derive(), purchase-unit + slice→weight + metric-output regressions
 - `tests/safe-fetch.test.ts` — SSRF protections
 - `tests/recipes-repo.test.ts` — recipe repository mappers + mocked-Prisma flows (upsert id retention, URL dedupe, summaries, `updateRecipe` edits, edited-recipe re-extract guard)
@@ -190,6 +192,21 @@ All four sites have clean schema.org JSON-LD markup — Claude fallback should r
 | Hot Thai Kitchen | hot-thai-kitchen.com | Metric | Thai; sometimes Thai script in ingredient parens |
 | Made With Lau | madewithlau.com | Mixed | Cantonese; sometimes Chinese characters in parens |
 
+### Instagram reels
+
+Instagram pages have no recipe JSON-LD, so `/api/extract` detects Instagram URLs
+(`isInstagramUrl`) and branches to `src/lib/extractors/instagram.ts` instead of the
+schema.org → body-text path. The assumption is that the **reel caption contains the full
+recipe**. Flow: `extractInstagramCaption(html)` (JSON-LD caption → `og:description` fallback,
+with the "N likes, M comments - user on date:" preamble stripped) → `looksLikeRecipe(caption)`
+heuristic gate (recipe keyword OR ≥3 quantity+unit matches; rejects non-recipe captions before
+spending an LLM call) → `extractWithLlm(caption, url)`. `cuisine_source` is `unknown`.
+
+> **Known limitation (server-fetch only):** Instagram often serves a login wall to
+> unauthenticated server fetches and `og:description` can be truncated, so some reels fail to
+> import (surfaced as a 422/502 error, never a bad recipe). A manual "paste the caption"
+> fallback is the natural follow-up.
+
 ## Canonical Ingredient Registry
 
 `src/data/ingredients.json` — ~300 entries. Schema version: `1.0.0`.
@@ -274,3 +291,4 @@ user copies out never contains oz or lb. Enforced by a regression test in
 - [x] Task 13: Cooking-step extraction (`Recipe.instructions`)
 - [x] Task 14: Shared recipe library (Postgres + Prisma, `/api/recipes`, auto-save on extract)
 - [x] Task 15: Library picker UI + recipe detail view
+- [x] Task 16: Instagram reel import (caption extraction + recipe heuristic gate)
