@@ -202,10 +202,15 @@ with the "N likes, M comments - user on date:" preamble stripped) → `looksLike
 heuristic gate (recipe keyword OR ≥3 quantity+unit matches; rejects non-recipe captions before
 spending an LLM call) → `extractWithLlm(caption, url)`. `cuisine_source` is `unknown`.
 
-> **Known limitation (server-fetch only):** Instagram often serves a login wall to
-> unauthenticated server fetches and `og:description` can be truncated, so some reels fail to
-> import (surfaced as a 422/502 error, never a bad recipe). A manual "paste the caption"
-> fallback is the natural follow-up.
+Reels are fetched with a **`facebookexternalhit` crawler User-Agent** (`INSTAGRAM_USER_AGENT`,
+passed to `safeFetch`): a generic browser UA gets a login-walled JS shell with no caption, whereas
+Instagram renders the rich `og:`/JSON-LD caption preview for link-unfurl crawlers. The route picks
+the UA based on `isInstagramUrl` *before* fetching.
+
+> **Known limitation (server-fetch only):** even with the crawler UA, Instagram can still withhold
+> the caption for some reels (and `og:description` may be truncated), so a few fail to import
+> (surfaced as a 422/502 error, never a bad recipe). A manual "paste the caption" fallback is the
+> natural follow-up.
 
 ## Canonical Ingredient Registry
 

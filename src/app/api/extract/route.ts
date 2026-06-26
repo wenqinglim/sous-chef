@@ -16,7 +16,11 @@ import { z } from "zod";
 import type { Recipe } from "@/types";
 import { extractFromSchemaOrg, extractBodyText } from "@/lib/extractors/schema-org";
 import { extractWithLlm } from "@/lib/extractors/llm-fallback";
-import { isInstagramUrl, extractFromInstagram } from "@/lib/extractors/instagram";
+import {
+  isInstagramUrl,
+  extractFromInstagram,
+  INSTAGRAM_USER_AGENT,
+} from "@/lib/extractors/instagram";
 import { safeFetch, BlockedUrlError } from "@/lib/extractors/safe-fetch";
 import { upsertRecipeByUrl } from "@/lib/db/recipes";
 
@@ -60,11 +64,19 @@ export async function POST(request: NextRequest) {
 
   const { url } = parsed.data;
 
+  // Instagram only renders the caption preview for link-unfurl crawlers, so
+  // reels must be fetched with a crawler User-Agent (a browser UA gets a
+  // caption-less login shell). Decide here, before fetching.
+  const instagram = isInstagramUrl(url);
+
   // Fetch the recipe page server-side (bypasses CORS) through the SSRF-safe
   // wrapper, since we now accept arbitrary user-supplied URLs.
   let html: string;
   try {
-    const result = await safeFetch(url);
+    const result = await safeFetch(
+      url,
+      instagram ? { userAgent: INSTAGRAM_USER_AGENT } : {}
+    );
     if (!result.ok) {
       return NextResponse.json(
         { error: `Failed to fetch URL: HTTP ${result.status}` },
@@ -85,7 +97,7 @@ export async function POST(request: NextRequest) {
 
   // Instagram reels have no recipe JSON-LD — the recipe lives in the caption.
   // Branch to the caption-based extractor instead of scraping the login wall.
-  if (isInstagramUrl(url)) {
+  if (instagram) {
     const igResult = await extractFromInstagram(html, url);
     if (igResult.recipe) {
       return saveExtracted(igResult.recipe);
