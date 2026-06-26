@@ -72,6 +72,14 @@ Rules:
 export interface LlmExtractionResult {
   recipe: Recipe | null;
   error?: string;
+  /**
+   * Failure classification for callers that map to HTTP status:
+   *   "no_recipe"       — content was readable but isn't a recipe (→ 422)
+   *   "extractor_error" — the extractor/LLM itself failed; the content may be
+   *                       fine (missing key, API outage, bad model output) (→ 502)
+   * Absent on success.
+   */
+  kind?: "no_recipe" | "extractor_error";
 }
 
 /**
@@ -85,7 +93,7 @@ export async function extractWithLlm(
   url: string
 ): Promise<LlmExtractionResult> {
   if (!process.env.ANTHROPIC_API_KEY) {
-    return { recipe: null, error: "ANTHROPIC_API_KEY not set" };
+    return { recipe: null, error: "ANTHROPIC_API_KEY not set", kind: "extractor_error" };
   }
 
   // Truncate to ~50k chars to stay well within context limits
@@ -108,13 +116,14 @@ export async function extractWithLlm(
 
     const content = message.content[0];
     if (content.type !== "text") {
-      return { recipe: null, error: "LLM returned non-text content" };
+      return { recipe: null, error: "LLM returned non-text content", kind: "extractor_error" };
     }
     rawJson = content.text.trim();
   } catch (err) {
     return {
       recipe: null,
       error: `LLM API call failed: ${err instanceof Error ? err.message : String(err)}`,
+      kind: "extractor_error",
     };
   }
 
@@ -127,6 +136,7 @@ export async function extractWithLlm(
     return {
       recipe: null,
       error: `LLM response failed validation: ${err instanceof Error ? err.message : String(err)}`,
+      kind: "extractor_error",
     };
   }
 

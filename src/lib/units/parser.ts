@@ -21,7 +21,7 @@ import {
 
 // ─── Known unit tokens (ordered: multi-word first, longest first) ─────────────
 
-const UNIT_TOKENS = [
+export const UNIT_TOKENS = [
   // multi-word — must precede single-word to avoid partial matches
   "fl. oz.",
   "fl. oz",
@@ -129,8 +129,10 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Build a single alternation regex for units (longest/multi-word first)
-const UNIT_RE_SOURCE = UNIT_TOKENS.map(escapeRegex).join("|");
+// Build a single alternation regex for units (longest/multi-word first).
+// Exported so other callers (e.g. the Instagram recipe heuristic) match the
+// exact unit vocabulary the parser understands instead of duplicating it.
+export const UNIT_RE_SOURCE = UNIT_TOKENS.map(escapeRegex).join("|");
 
 // ─── Number parsing ───────────────────────────────────────────────────────────
 
