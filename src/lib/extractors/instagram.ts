@@ -25,6 +25,15 @@ const INSTAGRAM_HOSTS = new Set([
   "www.instagr.am",
 ]);
 
+/**
+ * Instagram serves the rich `og:`/JSON-LD caption preview only to recognized
+ * link-unfurl crawlers — a generic browser User-Agent gets a login-walled JS
+ * shell with no caption. Fetch reels as Facebook's crawler so the caption is
+ * present in the HTML. (Used by the /api/extract route for Instagram URLs.)
+ */
+export const INSTAGRAM_USER_AGENT =
+  "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)";
+
 /** True when `url` points at Instagram, so the route uses the caption path. */
 export function isInstagramUrl(url: string): boolean {
   try {
