@@ -83,6 +83,27 @@ export interface LlmExtractionResult {
 }
 
 /**
+ * Pull the JSON object out of an LLM text response, tolerating the markdown
+ * Claude sometimes adds despite being asked not to. In order:
+ *   1. strip a surrounding ```` ``` ```` / ```` ```json ```` fence, else
+ *   2. slice from the first "{" to the last "}" (drops leading/trailing prose), else
+ *   3. return the trimmed input unchanged.
+ * Exported for testing.
+ */
+export function extractJsonText(raw: string): string {
+  const trimmed = raw.trim();
+
+  const fenced = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i);
+  if (fenced) return fenced[1].trim();
+
+  const first = trimmed.indexOf("{");
+  const last = trimmed.lastIndexOf("}");
+  if (first !== -1 && last > first) return trimmed.slice(first, last + 1);
+
+  return trimmed;
+}
+
+/**
  * Extract recipe from page text using Claude API.
  *
  * @param bodyText  Cleaned body text from extractBodyText()
@@ -130,7 +151,7 @@ export async function extractWithLlm(
   // Parse and validate the JSON response
   let parsed: LlmRecipe;
   try {
-    const jsonData = JSON.parse(rawJson);
+    const jsonData = JSON.parse(extractJsonText(rawJson));
     parsed = LlmRecipeSchema.parse(jsonData);
   } catch (err) {
     return {

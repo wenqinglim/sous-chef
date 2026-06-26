@@ -41,7 +41,7 @@ DATABASE_URL=postgresql://...   # Neon connection string; injected by the Vercel
 npm install
 npm run db:deploy  # apply Prisma migrations (once per database)
 npm run dev        # http://localhost:3000
-npm test           # run all tests (337 passing; no DB needed — Prisma is mocked)
+npm test           # run all tests (343 passing; no DB needed — Prisma is mocked)
 npm run build      # production build: prisma generate → migrate deploy → next build
 ```
 
@@ -53,11 +53,12 @@ npm run build      # production build: prisma generate → migrate deploy → ne
 
 ## Test Coverage
 
-337 tests across 8 suites:
+343 tests across 9 suites:
 - `tests/units.test.ts` — unit conversions + ingredient text parser, incl. mixed/unicode ranges
 - `tests/normalization.test.ts` — registry lookup, alias matching, soy sauce disambiguation, messy-name robustness
 - `tests/extraction.test.ts` — schema.org extraction for all 4 target sites + `parseInstructions` for every JSON-LD instruction shape
 - `tests/instagram.test.ts` — Instagram URL detection, caption extraction (JSON-LD + og:description), recipe heuristic gate, and orchestration (LLM mocked)
+- `tests/llm-fallback.test.ts` — `extractJsonText` unwraps markdown-fenced / prose-wrapped LLM JSON responses
 - `tests/rescale.test.ts` — ingredient quantity rescaling by servings
 - `tests/pipeline.test.ts` — aggregate, purchase planning, full derive(), purchase-unit + slice→weight + metric-output regressions
 - `tests/safe-fetch.test.ts` — SSRF protections
