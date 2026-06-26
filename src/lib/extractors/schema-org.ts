@@ -79,9 +79,63 @@ export function parseServings(raw: string | string[] | number | undefined | null
   return n > 0 ? n : null;
 }
 
-/** Strip HTML tags and collapse whitespace in a step string */
+/**
+ * Decode HTML character references in extracted text.
+ *
+ * JSON-LD lives inside `<script type="application/ld+json">`, which the HTML
+ * spec treats as a *raw text* element — the parser does NOT decode character
+ * references inside it. WordPress/WP Recipe Maker (RecipeTin Eats et al.)
+ * HTML-escapes apostrophes and ampersands in its JSON-LD, so strings arrive as
+ * `chef&#39;s`, `salt &amp; pepper`, `jalape&#241;o`. JSON.parse keeps those
+ * five/six characters verbatim and React then renders the literal `&#39;`.
+ *
+ * Decode the handful of named entities recipe text actually uses, plus every
+ * numeric (`&#39;`) and hex (`&#x27;`) reference.
+ */
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  apos: "'",
+  quot: '"',
+  lt: "<",
+  gt: ">",
+  nbsp: " ",
+  deg: "°",
+  frac12: "½",
+  frac14: "¼",
+  frac34: "¾",
+  hellip: "…",
+  mdash: "—",
+  ndash: "–",
+  rsquo: "’",
+  lsquo: "‘",
+  rdquo: "”",
+  ldquo: "“",
+};
+
+export function decodeHtmlEntities(s: string): string {
+  return s.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/g, (match, body) => {
+    if (body[0] === "#") {
+      const code =
+        body[1] === "x" || body[1] === "X"
+          ? parseInt(body.slice(2), 16)
+          : parseInt(body.slice(1), 10);
+      if (Number.isNaN(code)) return match;
+      try {
+        return String.fromCodePoint(code);
+      } catch {
+        return match;
+      }
+    }
+    const named = NAMED_ENTITIES[body];
+    return named !== undefined ? named : match;
+  });
+}
+
+/** Strip HTML tags, decode entities, and collapse whitespace in a step string */
 function cleanStepText(s: string): string {
-  return s.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+  return decodeHtmlEntities(s.replace(/<[^>]*>/g, ""))
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**
@@ -100,7 +154,7 @@ function cleanStepText(s: string): string {
  * detail UI (raw_text is rendered as-is).
  */
 export function cleanIngredientText(raw: string): string {
-  let s = raw;
+  let s = decodeHtmlEntities(raw);
   let prev: string;
   do {
     prev = s;
@@ -252,7 +306,7 @@ export function extractFromSchemaOrg(html: string, url: string): ExtractionResul
   const schemaRecipe = recipeObjects[0];
 
   // Validate minimum required fields
-  const title = schemaRecipe.name?.trim();
+  const title = schemaRecipe.name ? decodeHtmlEntities(schemaRecipe.name).trim() : undefined;
   if (!title) {
     return { recipe: null, error: "Recipe name missing from schema.org data" };
   }

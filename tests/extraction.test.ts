@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import {
   cleanIngredientText,
+  decodeHtmlEntities,
   extractFromSchemaOrg,
   parseInstructions,
   parseServings,
@@ -195,6 +196,40 @@ describe("cleanIngredientText (WP Recipe Maker artifacts)", () => {
 
   test("leaves text with no parens untouched", () => {
     expect(cleanIngredientText("Salt and pepper")).toBe("Salt and pepper");
+  });
+
+  test("decodes a numeric apostrophe entity (WP Recipe Maker)", () => {
+    expect(cleanIngredientText("2 tbsp chef&#39;s special sauce")).toBe(
+      "2 tbsp chef's special sauce"
+    );
+  });
+
+  test("decodes &amp; and a zero-padded numeric apostrophe", () => {
+    expect(cleanIngredientText("salt &amp; mum&#039;s pepper blend")).toBe(
+      "salt & mum's pepper blend"
+    );
+  });
+
+  test("decodes entities before collapsing doubled parens", () => {
+    expect(
+      cleanIngredientText("1/4 cup baker&#39;s flour ((Note 1))")
+    ).toBe("1/4 cup baker's flour (Note 1)");
+  });
+});
+
+// ─── decodeHtmlEntities ───────────────────────────────────────────────────────
+
+describe("decodeHtmlEntities", () => {
+  test("decodes numeric, hex, and named references", () => {
+    expect(decodeHtmlEntities("a&#39;b")).toBe("a'b");
+    expect(decodeHtmlEntities("a&#x27;b")).toBe("a'b");
+    expect(decodeHtmlEntities("a&apos;b")).toBe("a'b");
+    expect(decodeHtmlEntities("salt &amp; pepper")).toBe("salt & pepper");
+    expect(decodeHtmlEntities("jalape&#241;o")).toBe("jalapeño");
+  });
+
+  test("leaves unknown or malformed references untouched", () => {
+    expect(decodeHtmlEntities("100&deg; &bogus; &;")).toBe("100° &bogus; &;");
   });
 });
 
