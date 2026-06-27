@@ -3,28 +3,25 @@
  *
  * Recipe websites expose schema.org JSON-LD; Instagram does not. Instead we
  * assume the reel's *caption* contains the full recipe (ingredients + steps),
- * pull that caption out of the fetched page, gate it through a cheap heuristic
- * to reject non-recipe captions, and hand the surviving text to the existing
- * LLM extractor.
+ * gate it through a cheap heuristic to reject non-recipe captions, and hand the
+ * surviving text to the existing LLM extractor. When the caption is absent or
+ * incomplete, we fall back to transcribing the reel's audio.
  *
- * Caption sourcing is server-fetch only: Instagram frequently serves a login
- * wall to unauthenticated requests and `og:description` is sometimes truncated,
- * so some reels will simply fail to import — that surfaces as an error rather
- * than a bad recipe.
+ * Instagram login-walls server requests from datacenter IPs, so the caption and
+ * video are sourced via a third-party scraper provider (see
+ * `instagram-scraper.ts`) rather than fetched directly. Reels the scraper can't
+ * read (private/removed) surface as an error — and the UI offers a manual
+ * caption-paste path — rather than a bad recipe.
  */
 
 import * as cheerio from "cheerio";
 import { extractWithLlm, type LlmExtractionResult } from "@/lib/extractors/llm-fallback";
 import {
-  extractVideoUrl,
-  extractVideoUrlFromApiJson,
-  unescapeEmbedded,
-  CDN_ANY_RE,
   binaryFetch,
   transcribeWithWhisper,
   MAX_VIDEO_BYTES,
 } from "@/lib/extractors/instagram-audio";
-import { safeFetch } from "@/lib/extractors/safe-fetch";
+import { fetchInstagramMedia } from "@/lib/extractors/instagram-scraper";
 import { UNIT_RE_SOURCE } from "@/lib/units/parser";
 
 const INSTAGRAM_HOSTS = new Set([
@@ -35,27 +32,6 @@ const INSTAGRAM_HOSTS = new Set([
   "www.instagr.am",
 ]);
 
-/**
- * Instagram serves the rich `og:`/JSON-LD caption preview only to recognized
- * link-unfurl crawlers — a generic browser User-Agent gets a login-walled JS
- * shell with no caption. Fetch reels as Facebook's crawler so the caption is
- * present in the HTML. (Used by the /api/extract route for Instagram URLs.)
- */
-export const INSTAGRAM_USER_AGENT =
-  "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)";
-
-/**
- * Public web App ID for instagram.com. Required (alongside a session cookie) for
- * the authenticated web endpoints (`?__a=1`, `/api/v1/media/.../info/`) to return
- * JSON rather than a login redirect. This is the same constant the website itself
- * sends; it is not a secret.
- */
-const IG_APP_ID = "936619743392459";
-
-/** A desktop browser UA used for authenticated (cookie-bearing) fetches. */
-const IG_BROWSER_UA =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-
 /** Extract the reel/post shortcode from an Instagram URL (`/reel/X/`, `/reels/X/`, `/p/X/`). */
 export function instagramShortcode(url: string): string | null {
   try {
@@ -65,21 +41,6 @@ export function instagramShortcode(url: string): string | null {
   } catch {
     return null;
   }
-}
-
-/**
- * When `IG_SESSIONID` is configured, Instagram serves the real page/JSON (caption
- * + video) instead of a login wall. This builds the Cookie + App-ID headers; returns
- * null when no session cookie is set so callers can skip the authenticated path.
- */
-function instagramAuthHeaders(): Record<string, string> | null {
-  const sessionId = process.env.IG_SESSIONID;
-  if (!sessionId) return null;
-  return {
-    Cookie: `sessionid=${sessionId}`,
-    "X-IG-App-ID": IG_APP_ID,
-    "User-Agent": IG_BROWSER_UA,
-  };
 }
 
 /** True when `url` points at Instagram, so the route uses the caption path. */
@@ -262,60 +223,48 @@ export async function extractFromInstagram(
 }
 
 /**
- * Extract a recipe from a fetched Instagram reel page, with audio fallback.
+ * Extract a recipe from an Instagram reel, with audio fallback.
  *
- * Tries the caption first. If the caption is absent, not a recipe, or yields
- * an incomplete recipe (missing ingredients OR instructions), downloads the
- * reel video (via og:video), transcribes it with Groq Whisper, and runs the
+ * Fetches the reel's caption + video URL via the scraper provider
+ * (`fetchInstagramMedia`). Tries the caption first; if it's absent, not a
+ * recipe, or yields an incomplete recipe (missing ingredients OR instructions),
+ * downloads the reel video, transcribes it with Groq Whisper, and runs the
  * transcript through the LLM extractor.
  *
  * When audio fallback fails but the caption yielded a partial recipe, the
  * partial result is returned rather than an error — partial is better than
  * losing what the caption did contain.
  *
+ * @param url       The reel URL.
  * @param onStatus  Called with human-readable progress strings for UI display.
  */
 export async function extractFromInstagramWithAudio(
-  html: string,
   url: string,
   onStatus: (msg: string) => void
 ): Promise<LlmExtractionResult> {
-  // ── Authenticated re-fetch ─────────────────────────────────────────────────
-  // The crawler/anonymous HTML passed in is now login-walled (no caption, no
-  // video). When IG_SESSIONID is set, re-fetch the reel page WITH the session
-  // cookie: Instagram then serves the real page (caption + video data), which we
-  // use as the working HTML for everything downstream.
-  let workingHtml = html;
-  const authHeaders = instagramAuthHeaders();
-  const shortcode = instagramShortcode(url);
+  // ── Fetch caption + video via the scraper (off our IP) ─────────────────────
+  onStatus("Fetching reel…");
+  const media = await fetchInstagramMedia(url);
 
-  if (authHeaders && shortcode) {
-    onStatus("Fetching reel with Instagram session…");
-    try {
-      const authed = await safeFetch(`https://www.instagram.com/reel/${shortcode}/`, {
-        headers: authHeaders,
-      });
-      console.error(
-        `[IG] authed page fetch: ok=${authed.ok} status=${authed.status} len=${authed.text.length}`
-      );
-      // A login redirect comes back short; the real page is large.
-      if (authed.ok && authed.text.length > 2000) workingHtml = authed.text;
-    } catch (e) {
-      console.error("[IG] authed page fetch failed:", e);
-    }
-  } else if (!authHeaders) {
-    console.error("[IG] IG_SESSIONID not set — using anonymous HTML (caption/video may be login-walled).");
+  if (!media) {
+    // Provider unconfigured or couldn't read the reel — not "this isn't a recipe".
+    return {
+      recipe: null,
+      error:
+        "Couldn't fetch this Instagram reel automatically. Paste the reel's caption text to import it, or set APIFY_TOKEN.",
+      kind: "extractor_error",
+    };
   }
 
   // ── Caption path ─────────────────────────────────────────────────────────
-  const caption = extractInstagramCaption(workingHtml);
+  const caption = media.caption;
   const captionIsRecipe = caption ? looksLikeRecipe(caption) : false;
 
   // Diagnostic: always log caption state to Vercel logs.
   console.error(
     caption
       ? `[IG] caption: ${caption.length} chars, looksLikeRecipe=${captionIsRecipe}`
-      : "[IG] caption: null (login wall or private?)"
+      : "[IG] caption: none returned by scraper"
   );
   if (caption && !captionIsRecipe) {
     console.error(`[IG] caption preview (not a recipe): ${caption.slice(0, 300)}`);
@@ -346,159 +295,27 @@ export async function extractFromInstagramWithAudio(
     // Caption absent or not a recipe — explain before trying audio.
     onStatus(
       !caption
-        ? "Caption not found (may be private or login-walled). Trying audio…"
-        : `Caption (${caption.length} chars) doesn't look like a recipe. Trying audio…`
+        ? "No caption on this reel. Trying audio…"
+        : "Caption doesn't look like a recipe. Trying audio…"
     );
-  }
-
-  // ── Video URL discovery ───────────────────────────────────────────────────
-  // Several sources, tried cheapest-reliable first.
-
-  // Source 1: the working HTML (authenticated page when IG_SESSIONID is set, else
-  // the anonymous crawler HTML which rarely contains the MP4).
-  let videoUrl = extractVideoUrl(workingHtml);
-  console.error(`[IG] video URL in page HTML: ${videoUrl ?? "none"}`);
-
-  // Source 2 (primary when authenticated): Instagram's web JSON API. With a session
-  // cookie + App-ID it returns the full media object (video_versions[].url). This is
-  // the reliable path now that anonymous endpoints are login-walled.
-  if (!videoUrl && authHeaders && shortcode) {
-    for (const apiUrl of [
-      `https://www.instagram.com/api/v1/media/${shortcode}/info/`,
-      `https://www.instagram.com/reel/${shortcode}/?__a=1&__d=dis`,
-    ]) {
-      try {
-        onStatus("Querying Instagram API (authenticated) for video…");
-        const apiRes = await safeFetch(apiUrl, { headers: authHeaders });
-        console.error(
-          `[IG] authed API ${apiUrl.includes("/api/v1/") ? "media/info" : "?__a=1"}: ok=${apiRes.ok} status=${apiRes.status} len=${apiRes.text.length}`
-        );
-        if (apiRes.ok && apiRes.text) {
-          videoUrl = extractVideoUrlFromApiJson(JSON.parse(apiRes.text));
-          console.error(`[IG] video URL from authed API: ${videoUrl ?? "none"}`);
-          if (videoUrl) break;
-        }
-      } catch (e) {
-        console.error(`[IG] authed API fetch failed (${apiUrl}):`, e);
-      }
-    }
-  }
-
-  // Source 3: Instagram embed page (public iframe endpoint).
-  // Instagram's facebookexternalhit response often omits og:video, so we construct
-  // the embed URL directly from the reel shortcode rather than relying on the meta tag.
-  if (!videoUrl) {
-    const $page = cheerio.load(workingHtml);
-    // Log which og: properties Instagram actually gave us (helps diagnose future changes).
-    const ogProps = $page('meta[property^="og:"]')
-      .toArray()
-      .map((el) => $page(el).attr("property"))
-      .filter(Boolean);
-    console.error(`[IG] og: tags present: ${ogProps.join(", ") || "none"}`);
-
-    // Prefer the meta tag if it's there; otherwise construct from shortcode.
-    const ogEmbedUrl =
-      $page('meta[property="og:video:secure_url"]').attr("content") ??
-      $page('meta[property="og:video"]').attr("content") ??
-      null;
-    const embedUrl =
-      ogEmbedUrl ??
-      (shortcode
-        ? `https://www.instagram.com/reel/${shortcode}/embed/captioned/`
-        : null);
-    console.error(`[IG] embed URL: ${embedUrl ?? "none"} (source: ${ogEmbedUrl ? "og:video" : "constructed"})`);
-    onStatus(`Fetching Instagram embed page for video URL…`);
-
-    if (embedUrl && embedUrl.includes("instagram.com")) {
-      try {
-        // Attempt 1: browser UA (appropriate for a public iframe page).
-        const r1 = await safeFetch(embedUrl);
-        console.error(
-          `[IG] embed fetch (browser UA): ok=${r1.ok} status=${r1.status} len=${r1.text.length}`
-        );
-        if (r1.ok) videoUrl = extractVideoUrl(r1.text);
-
-        // Attempt 2: crawler UA (same as main-page fetch — different rendering path).
-        let r2text = "";
-        if (!videoUrl) {
-          const r2 = await safeFetch(embedUrl, { userAgent: INSTAGRAM_USER_AGENT });
-          console.error(
-            `[IG] embed fetch (crawler UA): ok=${r2.ok} status=${r2.status} len=${r2.text.length}`
-          );
-          r2text = r2.text;
-          if (r2.ok) videoUrl = extractVideoUrl(r2.text);
-        }
-        if (!videoUrl) {
-          // Still nothing. Diagnose whether the video URL is present-but-mangled
-          // or genuinely absent from the embed HTML.
-          const lastHtml = r2text || r1.text;
-          const decoded = unescapeEmbedded(lastHtml);
-
-          // (a) Which video-related keywords appear at all?
-          const keywords = [
-            "video_url",
-            "video_versions",
-            "playable_url",
-            ".mp4",
-            "contextJSON",
-            "<video",
-          ].filter((k) => decoded.includes(k));
-          console.error(`[IG] embed video keywords present: ${keywords.join(", ") || "none"}`);
-
-          // (b) Sample CDN URLs from the decoded HTML (any extension).
-          CDN_ANY_RE.lastIndex = 0;
-          const samples = (decoded.match(CDN_ANY_RE) ?? [])
-            .map((u) => u.slice(0, 100))
-            .filter((u, i, arr) => arr.indexOf(u) === i)
-            .slice(0, 4);
-          console.error(`[IG] CDN URL samples in embed page: ${samples.join(" | ") || "none"}`);
-
-          // (c) If an .mp4 substring exists, dump its surrounding context.
-          const mp4Idx = decoded.indexOf(".mp4");
-          if (mp4Idx >= 0) {
-            console.error(`[IG] .mp4 context: …${decoded.slice(Math.max(0, mp4Idx - 160), mp4Idx + 20)}…`);
-          }
-        }
-        console.error(`[IG] video URL from embed page: ${videoUrl ?? "none"}`);
-      } catch (e) {
-        console.error("[IG] embed page fetch threw:", e);
-      }
-    }
-  }
-
-  // Source 4: anonymous ?__a=1&__d=dis endpoint (last resort when no session
-  // cookie is configured — usually login-walled now, but kept for completeness).
-  if (!videoUrl && !authHeaders && shortcode) {
-    try {
-      onStatus("Trying Instagram JSON API for video URL…");
-      const apiUrl = `https://www.instagram.com/reel/${shortcode}/?__a=1&__d=dis`;
-      const apiRes = await safeFetch(apiUrl, { userAgent: INSTAGRAM_USER_AGENT });
-      console.error(`[IG] ?__a=1 fetch (anon): ok=${apiRes.ok} status=${apiRes.status}`);
-      if (apiRes.ok && apiRes.text) {
-        videoUrl = extractVideoUrlFromApiJson(JSON.parse(apiRes.text));
-        console.error(`[IG] video URL from ?__a=1: ${videoUrl ?? "none"}`);
-      }
-    } catch (e) {
-      console.error("[IG] ?__a=1 fallback failed:", e);
-    }
   }
 
   // ── Audio fallback ────────────────────────────────────────────────────────
 
+  const videoUrl = media.videoUrl;
+  console.error(`[IG] video URL from scraper: ${videoUrl ?? "none"}`);
+
   if (!videoUrl) {
     if (captionResult?.recipe) {
       onStatus(
-        "No video URL found — saving what the caption contained (instructions may be incomplete)."
+        "No video available — saving what the caption contained (instructions may be incomplete)."
       );
       return captionResult;
     }
-    const hint = authHeaders
-      ? "The reel may be private, or the IG_SESSIONID cookie may have expired."
-      : "Set IG_SESSIONID (a logged-in Instagram session cookie) to let the app read the caption and video.";
     return {
       recipe: null,
       error:
-        `No recipe found in caption and no video URL available for audio extraction. ${hint}`,
+        "No recipe found in the caption and no video available for audio extraction. Try pasting the reel's caption text instead.",
       kind: "no_recipe",
     };
   }

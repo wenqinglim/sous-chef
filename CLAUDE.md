@@ -34,7 +34,7 @@ Copy `.env.local.example` to `.env.local` and fill in:
 ANTHROPIC_API_KEY=sk-ant-...
 DATABASE_URL=postgresql://...   # Neon connection string; injected by the Vercel↔Neon integration in prod
 GROQ_API_KEY=gsk_...            # Groq Whisper — Instagram reel audio transcription
-IG_SESSIONID=...                # Instagram session cookie — required to import reels (see Instagram reels below)
+APIFY_TOKEN=apify_api_...       # Apify scraper — fetches Instagram reel caption + video (see Instagram reels below)
 ```
 
 ## Running Locally
@@ -43,7 +43,7 @@ IG_SESSIONID=...                # Instagram session cookie — required to impor
 npm install
 npm run db:deploy  # apply Prisma migrations (once per database)
 npm run dev        # http://localhost:3000
-npm test           # run all tests (345 passing; no DB needed — Prisma is mocked)
+npm test           # run all tests (412 passing; no DB needed — Prisma is mocked)
 npm run build      # production build: prisma generate → migrate deploy → next build
 ```
 
@@ -55,11 +55,14 @@ npm run build      # production build: prisma generate → migrate deploy → ne
 
 ## Test Coverage
 
-345 tests across 9 suites:
+412 tests across 12 suites:
 - `tests/units.test.ts` — unit conversions + ingredient text parser, incl. mixed/unicode ranges
 - `tests/normalization.test.ts` — registry lookup, alias matching, soy sauce disambiguation, messy-name robustness
 - `tests/extraction.test.ts` — schema.org extraction for all 4 target sites + `parseInstructions` for every JSON-LD instruction shape
-- `tests/instagram.test.ts` — Instagram URL detection, caption extraction (JSON-LD + og:description), recipe heuristic gate, and orchestration (LLM mocked)
+- `tests/instagram.test.ts` — Instagram URL detection, caption extraction (JSON-LD + og:description), recipe heuristic gate, and the caption-only path (LLM mocked)
+- `tests/instagram-scraper.test.ts` — `fetchInstagramMedia` request shape + caption/videoUrl parsing + degradation (unconfigured token, empty/non-array/non-ok responses)
+- `tests/instagram-audio.test.ts` — video-URL/JSON helpers, `binaryFetch`, Whisper (mocked), and `extractFromInstagramWithAudio` orchestration (caption→audio fallback, graceful degradation)
+- `tests/extract-route.test.ts` — `/api/extract` pasted-text branch: direct LLM extraction, url passthrough/synthesis, no fetching
 - `tests/llm-fallback.test.ts` — `extractJsonText` unwraps markdown-fenced / prose-wrapped LLM JSON responses
 - `tests/rescale.test.ts` — ingredient quantity rescaling by servings
 - `tests/pipeline.test.ts` — aggregate, purchase planning, full derive(), purchase-unit + slice→weight + metric-output regressions
@@ -200,38 +203,45 @@ All four sites have clean schema.org JSON-LD markup — Claude fallback should r
 Instagram pages have no recipe JSON-LD, so `/api/extract` detects Instagram URLs
 (`isInstagramUrl`) and branches to `src/lib/extractors/instagram.ts` instead of the
 schema.org → body-text path. The assumption is that the **reel caption contains the full
-recipe**. Flow: `extractInstagramCaption(html)` (JSON-LD caption → `og:description` fallback,
-with the "N likes, M comments - user on date:" preamble stripped) → `looksLikeRecipe(caption)`
-heuristic gate (recipe keyword OR ≥3 quantity+unit matches; rejects non-recipe captions before
-spending an LLM call) → `extractWithLlm(caption, url)`. `cuisine_source` is `unknown`.
+recipe**. Flow: `fetchInstagramMedia(url)` (scraper → `{ caption, videoUrl }`) →
+`looksLikeRecipe(caption)` heuristic gate (recipe keyword OR ≥3 quantity+unit matches; rejects
+non-recipe captions before spending an LLM call) → `extractWithLlm(caption, url)`. `cuisine_source`
+is `unknown`. (`extractInstagramCaption` — JSON-LD/`og:description` parsing with the
+"N likes, M comments - user on date:" preamble stripped — is retained for the caption-only
+`extractFromInstagram` path and tests.)
+
+**Fetching goes through a scraper, not our IP.** Instagram login-walls *both* the caption and the
+video for requests from datacenter IPs (Vercel's), and a personal `sessionid` cookie from such an
+IP is both fragile (expires, and the IP is still flagged) and risky to the account it belongs to.
+So reel fetching is delegated to a third-party scraper that runs on its own residential infra —
+no Instagram account of ours is involved. `src/lib/extractors/instagram-scraper.ts` exposes
+`fetchInstagramMedia(url): { caption, videoUrl } | null`, backed by Apify's maintained
+`apify/instagram-scraper` actor via its synchronous run endpoint (one POST returns the caption +
+CDN MP4 URL). It reads `APIFY_TOKEN`; the provider sits behind the `InstagramMedia` interface so a
+faster RapidAPI endpoint can be dropped in without touching callers. Returns `null` (→ clear error
++ paste fallback) when unconfigured or the reel is unreadable.
 
 **Audio fallback.** Many creators narrate the method instead of writing it. When the caption is
-absent/incomplete, `extractFromInstagramWithAudio` finds the reel's video URL, downloads it
-(`binaryFetch`, 24 MB cap), transcribes it with Groq Whisper (`transcribeWithWhisper`,
+absent/incomplete, `extractFromInstagramWithAudio(url, onStatus)` uses the scraper's `videoUrl`,
+downloads it (`binaryFetch`, 24 MB cap), transcribes it with Groq Whisper (`transcribeWithWhisper`,
 `whisper-large-v3`), and runs the transcript through the same LLM extractor. It degrades
 gracefully: if audio fails but the caption gave a partial recipe, the partial is saved rather
 than erroring.
 
-**Authentication (`IG_SESSIONID`) is now required.** As of 2025 Instagram login-walls *both* the
-caption and the video for logged-out/datacenter requests — the `facebookexternalhit` crawler UA
-gets a "Welcome back to Instagram. Sign in…" shell, and the embed page (`/reel/X/embed/captioned/`)
-is a JS shell whose initial HTML contains no video URL (only `static.cdninstagram.com/rsrc.php`
-asset bundles). So the route now re-fetches the reel **with a session cookie**:
-`instagramAuthHeaders()` builds `Cookie: sessionid=…` + `X-IG-App-ID: 936619743392459` from the
-`IG_SESSIONID` env var. With it, `extractFromInstagramWithAudio` (1) re-fetches the reel page
-authenticated and uses that HTML for caption + video, and (2) queries the web JSON API
-(`/api/v1/media/{shortcode}/info/`, then `?__a=1&__d=dis`) and pulls the CDN URL out of
-`video_versions[].url` via `extractVideoUrlFromApiJson`. Video-URL discovery order:
-authenticated page HTML → authenticated JSON API → public embed page (dual-UA) →
-anonymous `?__a=1` (only when no cookie).
+**Manual caption paste (the $0 fallback).** `/api/extract` also accepts `{ text }` (optionally with
+`url`): the pasted caption skips all fetching and goes straight to `extractWithLlm` — unblockable by
+Instagram. The home importer (`AddRecipeForm`) exposes a "Paste the caption instead" box and
+auto-opens it when an import errors. When `url` is given it's kept as the recipe's source link (and
+dedupe key); otherwise a unique `paste:<uuid>` url is synthesized.
 
 Every step logs a `[IG] …` line (`console.error` → Vercel logs) and emits a human-readable
 `onStatus` message (→ SSE → UI), so a failed import shows exactly which stage broke.
 
-> **Operational note:** `IG_SESSIONID` is a personal session cookie (instagram.com → DevTools →
-> Application → Cookies → `sessionid`). It expires every few months; when reel imports start
-> failing with "the IG_SESSIONID cookie may have expired", re-paste a fresh value. Without the
-> cookie set, reel imports fail with a clear error pointing the user to set it (never a bad recipe).
+> **Operational note:** `APIFY_TOKEN` is a personal Apify API token (console.apify.com → Settings →
+> API & Integrations). The free tier ($5/mo platform credit) easily covers personal use. If reel
+> imports start failing, check the Apify run logs / remaining credit — or just paste the caption.
+> Without the token set, reel imports fail with a clear error pointing to the paste box (never a
+> bad recipe).
 
 ## Canonical Ingredient Registry
 
@@ -247,7 +257,7 @@ Heuristic: unqualified "soy sauce" → `soy_sauce_light` if `cuisine_source === 
 
 | Route | Method | Body | Response | Note |
 |-------|--------|------|----------|------|
-| `/api/extract` | POST | `{ url }` | `{ recipe, saved }` | Server-side fetch; auto-saves to the library (saved=false if DB unreachable) |
+| `/api/extract` | POST | `{ url? , text? }` | SSE: `status` / `result {recipe, saved}` / `error` | URL → fetch+extract (websites schema.org, IG via scraper); `text` → extract pasted caption with no fetch. Auto-saves (saved=false if DB unreachable) |
 | `/api/normalize` | POST | `{ ingredients[], cuisine_source }` | `NormalizedIngredient[]` | Calls Claude in batch for unknowns |
 | `/api/grocery-list` | POST | `{ recipes: [{ recipe, target_servings }] }` | `{ items, grouped_by_aisle }` | Full pipeline |
 | `/api/recipes` | GET | — | `{ recipes: RecipeSummary[] }` | Saved-recipe library list |
@@ -318,3 +328,5 @@ user copies out never contains oz or lb. Enforced by a regression test in
 - [x] Task 14: Shared recipe library (Postgres + Prisma, `/api/recipes`, auto-save on extract)
 - [x] Task 15: Library picker UI + recipe detail view
 - [x] Task 16: Instagram reel import (caption extraction + recipe heuristic gate)
+- [x] Task 17: Instagram audio fallback (Groq Whisper transcription)
+- [x] Task 18: Scraper-based reel fetch (`APIFY_TOKEN`) + manual caption-paste fallback; drop personal `IG_SESSIONID`
