@@ -41,7 +41,7 @@ DATABASE_URL=postgresql://...   # Neon connection string; injected by the Vercel
 npm install
 npm run db:deploy  # apply Prisma migrations (once per database)
 npm run dev        # http://localhost:3000
-npm test           # run all tests (337 passing; no DB needed — Prisma is mocked)
+npm test           # run all tests (345 passing; no DB needed — Prisma is mocked)
 npm run build      # production build: prisma generate → migrate deploy → next build
 ```
 
@@ -53,11 +53,12 @@ npm run build      # production build: prisma generate → migrate deploy → ne
 
 ## Test Coverage
 
-337 tests across 8 suites:
+345 tests across 9 suites:
 - `tests/units.test.ts` — unit conversions + ingredient text parser, incl. mixed/unicode ranges
 - `tests/normalization.test.ts` — registry lookup, alias matching, soy sauce disambiguation, messy-name robustness
 - `tests/extraction.test.ts` — schema.org extraction for all 4 target sites + `parseInstructions` for every JSON-LD instruction shape
 - `tests/instagram.test.ts` — Instagram URL detection, caption extraction (JSON-LD + og:description), recipe heuristic gate, and orchestration (LLM mocked)
+- `tests/llm-fallback.test.ts` — `extractJsonText` unwraps markdown-fenced / prose-wrapped LLM JSON responses
 - `tests/rescale.test.ts` — ingredient quantity rescaling by servings
 - `tests/pipeline.test.ts` — aggregate, purchase planning, full derive(), purchase-unit + slice→weight + metric-output regressions
 - `tests/safe-fetch.test.ts` — SSRF protections
@@ -202,10 +203,15 @@ with the "N likes, M comments - user on date:" preamble stripped) → `looksLike
 heuristic gate (recipe keyword OR ≥3 quantity+unit matches; rejects non-recipe captions before
 spending an LLM call) → `extractWithLlm(caption, url)`. `cuisine_source` is `unknown`.
 
-> **Known limitation (server-fetch only):** Instagram often serves a login wall to
-> unauthenticated server fetches and `og:description` can be truncated, so some reels fail to
-> import (surfaced as a 422/502 error, never a bad recipe). A manual "paste the caption"
-> fallback is the natural follow-up.
+Reels are fetched with a **`facebookexternalhit` crawler User-Agent** (`INSTAGRAM_USER_AGENT`,
+passed to `safeFetch`): a generic browser UA gets a login-walled JS shell with no caption, whereas
+Instagram renders the rich `og:`/JSON-LD caption preview for link-unfurl crawlers. The route picks
+the UA based on `isInstagramUrl` *before* fetching.
+
+> **Known limitation (server-fetch only):** even with the crawler UA, Instagram can still withhold
+> the caption for some reels (and `og:description` may be truncated), so a few fail to import
+> (surfaced as a 422/502 error, never a bad recipe). A manual "paste the caption" fallback is the
+> natural follow-up.
 
 ## Canonical Ingredient Registry
 
