@@ -21,6 +21,7 @@ import {
   transcribeWithWhisper,
   MAX_VIDEO_BYTES,
 } from "@/lib/extractors/instagram-audio";
+import { safeFetch } from "@/lib/extractors/safe-fetch";
 import { UNIT_RE_SOURCE } from "@/lib/units/parser";
 
 const INSTAGRAM_HOSTS = new Set([
@@ -271,7 +272,27 @@ export async function extractFromInstagramWithAudio(
 
   // ── Audio fallback ────────────────────────────────────────────────────────
 
-  const videoUrl = extractVideoUrl(html);
+  let videoUrl = extractVideoUrl(html);
+
+  // facebookexternalhit HTML never embeds the raw MP4 URL — only the og:video
+  // embed page. Fetch that page (it's a public iframe endpoint) and scan it too.
+  if (!videoUrl) {
+    const $page = cheerio.load(html);
+    const embedUrl =
+      $page('meta[property="og:video:secure_url"]').attr("content") ??
+      $page('meta[property="og:video"]').attr("content") ??
+      null;
+    if (embedUrl && embedUrl.includes("instagram.com")) {
+      onStatus("Fetching embed page for video URL…");
+      try {
+        const embedRes = await safeFetch(embedUrl);
+        if (embedRes.ok) videoUrl = extractVideoUrl(embedRes.text);
+      } catch {
+        // embed fetch failure is not fatal
+      }
+    }
+  }
+
   if (!videoUrl) {
     if (captionResult?.recipe) {
       onStatus("No video URL found in page — saving what was extracted from the caption (instructions may be incomplete).");
