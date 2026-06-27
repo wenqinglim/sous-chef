@@ -18,6 +18,7 @@ import { extractWithLlm, type LlmExtractionResult } from "@/lib/extractors/llm-f
 import {
   extractVideoUrl,
   extractVideoUrlFromApiJson,
+  CDN_ANY_RE,
   binaryFetch,
   transcribeWithWhisper,
   MAX_VIDEO_BYTES,
@@ -335,6 +336,17 @@ export async function extractFromInstagramWithAudio(
             `[IG] embed fetch (crawler UA): ok=${r2.ok} status=${r2.status} len=${r2.text.length}`
           );
           if (r2.ok) videoUrl = extractVideoUrl(r2.text);
+        }
+        if (!videoUrl) {
+          // Still nothing — log a sample of CDN URLs present in the embed page
+          // (any extension) so we can see what path/format Instagram actually uses.
+          const lastHtml = r2.ok ? r2.text : r1.text;
+          CDN_ANY_RE.lastIndex = 0;
+          const samples = (lastHtml.match(CDN_ANY_RE) ?? [])
+            .map((u) => u.slice(0, 100))
+            .filter((u, i, arr) => arr.indexOf(u) === i)
+            .slice(0, 4);
+          console.error(`[IG] CDN URL samples in embed page: ${samples.join(" | ") || "none"}`);
         }
         console.error(`[IG] video URL from embed page: ${videoUrl ?? "none"}`);
       } catch (e) {

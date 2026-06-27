@@ -77,10 +77,16 @@ function findVideoUrlInJsonLd(value: unknown): string | null {
 }
 
 // Instagram CDN video URLs. Requires .mp4 to avoid matching image thumbnail
-// URLs (e.g. t51.x.jpg) that share the same cdninstagram.com/v/ path prefix.
-// Covers both CDN families accepted by isInstagramCdnUrl.
+// URLs (t51.*.jpg) that share the same CDN hostname.
+// The /v/ path prefix is NOT required here — fbcdn.net and newer CDN deployments
+// also use /o1/, /p/, and other path prefixes for video. Keeping only the CDN
+// hostname + .mp4 extension is sufficient to avoid false positives.
 const CDN_VIDEO_RE =
-  /https:\/\/[a-z0-9][\w.-]*(?:\.cdninstagram\.com|\.fbcdn\.net)\/v\/[^\s"'<>]*?\.mp4[^\s"'<>]*/gi;
+  /https:\/\/[a-z0-9][\w.-]*(?:\.cdninstagram\.com|\.fbcdn\.net)\/[^\s"'<>]*?\.mp4[^\s"'<>]*/gi;
+
+// Looser scan for ANY CDN URL (no extension filter) — used only for debug logging.
+export const CDN_ANY_RE =
+  /https:\/\/[a-z0-9][\w.-]*(?:\.cdninstagram\.com|\.fbcdn\.net)\/[^\s"'<>]{10,120}/gi;
 
 /**
  * Recursively walk a parsed Instagram API JSON response (`?__a=1&__d=dis`) looking
@@ -143,7 +149,16 @@ export function extractVideoUrl(html: string): string | null {
   });
   if (jsonLdVideo) return jsonLdVideo;
 
-  // 3. Regex scan for CDN MP4 URLs embedded anywhere in the page.
+  // 3. <video> / <source> tags — the embed page renders an actual video player
+  //    whose src points directly at the CDN.
+  for (const attr of ["src", "data-src", "data-video-src"]) {
+    for (const tag of ["video", "source"]) {
+      const val = $(`${tag}[${attr}]`).first().attr(attr);
+      if (val && isInstagramCdnUrl(val)) return val;
+    }
+  }
+
+  // 4. Regex scan for CDN MP4 URLs embedded anywhere in the page.
   // Instagram's crawler HTML sometimes includes the video CDN URL inside
   // <script> tags as JSON data (window._sharedData, VideoObject, etc.).
   // Decode common JSON escape sequences before scanning.

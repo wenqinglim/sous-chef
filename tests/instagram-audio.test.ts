@@ -18,6 +18,7 @@ jest.mock("@/lib/extractors/llm-fallback", () => ({
 jest.mock("@/lib/extractors/instagram-audio", () => ({
   extractVideoUrl: jest.fn(),
   extractVideoUrlFromApiJson: jest.fn().mockReturnValue(null),
+  CDN_ANY_RE: /https:\/\/[a-z0-9][\w.-]*(?:\.cdninstagram\.com|\.fbcdn\.net)\/[^\s"'<>]{10,120}/gi,
   binaryFetch: jest.fn(),
   transcribeWithWhisper: jest.fn(),
   MAX_VIDEO_BYTES: 24 * 1024 * 1024,
