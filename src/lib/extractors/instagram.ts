@@ -222,9 +222,14 @@ export async function extractFromInstagram(
 /**
  * Extract a recipe from a fetched Instagram reel page, with audio fallback.
  *
- * Tries the caption first. If the caption is absent or not a recipe, downloads
- * the reel video (via og:video), transcribes it with Groq Whisper, and runs
- * the transcript through the LLM extractor.
+ * Tries the caption first. If the caption is absent, not a recipe, or yields
+ * an incomplete recipe (missing ingredients OR instructions), downloads the
+ * reel video (via og:video), transcribes it with Groq Whisper, and runs the
+ * transcript through the LLM extractor.
+ *
+ * When audio fallback fails but the caption yielded a partial recipe, the
+ * partial result is returned rather than an error — partial is better than
+ * losing what the caption did contain.
  *
  * @param onStatus  Called with human-readable progress strings for UI display.
  */
@@ -235,23 +240,40 @@ export async function extractFromInstagramWithAudio(
 ): Promise<LlmExtractionResult> {
   // ── Caption path ─────────────────────────────────────────────────────────
   const caption = extractInstagramCaption(html);
+  let captionResult: LlmExtractionResult | null = null;
 
   if (caption && looksLikeRecipe(caption)) {
     onStatus("Extracting recipe from caption…");
-    return extractWithLlm(caption, url);
+    captionResult = await extractWithLlm(caption, url);
+
+    // Caption yielded a complete recipe (both ingredients and instructions).
+    if (
+      captionResult.recipe &&
+      captionResult.recipe.ingredients.length > 0 &&
+      captionResult.recipe.instructions.length > 0
+    ) {
+      return captionResult;
+    }
+
+    // Caption partial (missing ingredients or instructions) — try audio.
+    if (captionResult.recipe) {
+      onStatus("Recipe incomplete in caption. Trying audio for full recipe…");
+    }
+    // LLM itself failed on the caption — also fall through to audio.
+  } else {
+    // Caption absent or not a recipe — explain before trying audio.
+    onStatus(
+      !caption
+        ? "Caption not found (may be private or login-walled). Trying audio…"
+        : "Caption doesn't look like a recipe. Trying audio…"
+    );
   }
 
   // ── Audio fallback ────────────────────────────────────────────────────────
-  if (!caption) {
-    onStatus(
-      "Caption not found (may be private or login-walled). Trying audio…"
-    );
-  } else {
-    onStatus("Caption doesn't look like a recipe. Trying audio…");
-  }
 
   const videoUrl = extractVideoUrl(html);
   if (!videoUrl) {
+    if (captionResult?.recipe) return captionResult;
     return {
       recipe: null,
       error:
@@ -266,6 +288,7 @@ export async function extractFromInstagramWithAudio(
     timeoutMs: 30_000,
   });
   if (!videoBuffer) {
+    if (captionResult?.recipe) return captionResult;
     return {
       recipe: null,
       error:
@@ -277,6 +300,7 @@ export async function extractFromInstagramWithAudio(
   onStatus("Transcribing audio…");
   const transcript = await transcribeWithWhisper(videoBuffer);
   if (!transcript) {
+    if (captionResult?.recipe) return captionResult;
     return {
       recipe: null,
       error:
@@ -286,6 +310,7 @@ export async function extractFromInstagramWithAudio(
   }
 
   if (!looksLikeRecipe(transcript)) {
+    if (captionResult?.recipe) return captionResult;
     return {
       recipe: null,
       error: "The audio transcript doesn't appear to contain a recipe.",
@@ -294,5 +319,10 @@ export async function extractFromInstagramWithAudio(
   }
 
   onStatus("Extracting recipe from audio transcript…");
-  return extractWithLlm(transcript, url);
+  const audioResult = await extractWithLlm(transcript, url);
+  if (audioResult.recipe) return audioResult;
+
+  // Audio LLM failed — partial caption result is better than nothing.
+  if (captionResult?.recipe) return captionResult;
+  return audioResult;
 }
