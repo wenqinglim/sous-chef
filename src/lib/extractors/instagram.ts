@@ -18,6 +18,7 @@ import { extractWithLlm, type LlmExtractionResult } from "@/lib/extractors/llm-f
 import {
   extractVideoUrl,
   extractVideoUrlFromApiJson,
+  unescapeEmbedded,
   CDN_ANY_RE,
   binaryFetch,
   transcribeWithWhisper,
@@ -340,15 +341,35 @@ export async function extractFromInstagramWithAudio(
           if (r2.ok) videoUrl = extractVideoUrl(r2.text);
         }
         if (!videoUrl) {
-          // Still nothing — log a sample of CDN URLs present in the embed page
-          // (any extension) so we can see what path/format Instagram actually uses.
+          // Still nothing. Diagnose whether the video URL is present-but-mangled
+          // or genuinely absent from the embed HTML.
           const lastHtml = r2text || r1.text;
+          const decoded = unescapeEmbedded(lastHtml);
+
+          // (a) Which video-related keywords appear at all?
+          const keywords = [
+            "video_url",
+            "video_versions",
+            "playable_url",
+            ".mp4",
+            "contextJSON",
+            "<video",
+          ].filter((k) => decoded.includes(k));
+          console.error(`[IG] embed video keywords present: ${keywords.join(", ") || "none"}`);
+
+          // (b) Sample CDN URLs from the decoded HTML (any extension).
           CDN_ANY_RE.lastIndex = 0;
-          const samples = (lastHtml.match(CDN_ANY_RE) ?? [])
+          const samples = (decoded.match(CDN_ANY_RE) ?? [])
             .map((u) => u.slice(0, 100))
             .filter((u, i, arr) => arr.indexOf(u) === i)
             .slice(0, 4);
           console.error(`[IG] CDN URL samples in embed page: ${samples.join(" | ") || "none"}`);
+
+          // (c) If an .mp4 substring exists, dump its surrounding context.
+          const mp4Idx = decoded.indexOf(".mp4");
+          if (mp4Idx >= 0) {
+            console.error(`[IG] .mp4 context: …${decoded.slice(Math.max(0, mp4Idx - 160), mp4Idx + 20)}…`);
+          }
         }
         console.error(`[IG] video URL from embed page: ${videoUrl ?? "none"}`);
       } catch (e) {

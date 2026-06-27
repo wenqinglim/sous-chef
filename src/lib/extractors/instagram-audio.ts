@@ -159,17 +159,36 @@ export function extractVideoUrl(html: string): string | null {
   }
 
   // 4. Regex scan for CDN MP4 URLs embedded anywhere in the page.
-  // Instagram's crawler HTML sometimes includes the video CDN URL inside
-  // <script> tags as JSON data (window._sharedData, VideoObject, etc.).
-  // Decode common JSON escape sequences before scanning.
-  const decoded = html
-    .replace(/\\u002[Ff]/g, "/")  // JSON / / / → /
-    .replace(/\\u0026/g, "&")     // JSON & → &
-    .replace(/\\\//g, "/")        // JSON \/ → /
-    .replace(/&amp;/g, "&");      // HTML entity in OG attribute values
+  // Instagram's crawler/embed HTML includes the video CDN URL inside <script>
+  // tags as JSON data (contextJSON, window._sharedData, VideoObject, etc.).
+  const decoded = unescapeEmbedded(html);
 
   CDN_VIDEO_RE.lastIndex = 0;
   return decoded.match(CDN_VIDEO_RE)?.[0] ?? null;
+}
+
+/**
+ * Unescape JSON/HTML escape sequences that hide CDN URLs in Instagram's HTML.
+ *
+ * Instagram's embed page stores media data in a `contextJSON` blob: a JSON
+ * string nested inside another JSON string, so slashes can be escaped two or
+ * three levels deep (`https:\\\/\\\/scontent…`). A single decode pass leaves
+ * stray backslashes in the host that break the CDN regex, so we apply the
+ * substitutions repeatedly until the string stops changing (capped to avoid a
+ * pathological loop).
+ */
+export function unescapeEmbedded(input: string): string {
+  let s = input;
+  for (let i = 0; i < 5; i++) {
+    const next = s
+      .replace(/\\u002[Ff]/g, "/") // / → /
+      .replace(/\\u0026/g, "&") //    & → &
+      .replace(/\\\//g, "/") //        \/ → /
+      .replace(/&amp;/g, "&"); //      &amp; → &
+    if (next === s) break;
+    s = next;
+  }
+  return s;
 }
 
 /**

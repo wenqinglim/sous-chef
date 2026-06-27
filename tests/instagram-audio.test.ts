@@ -15,14 +15,18 @@ jest.mock("@/lib/extractors/llm-fallback", () => ({
 }));
 
 // Mock the audio helpers so orchestration tests control each step.
-jest.mock("@/lib/extractors/instagram-audio", () => ({
-  extractVideoUrl: jest.fn(),
-  extractVideoUrlFromApiJson: jest.fn().mockReturnValue(null),
-  CDN_ANY_RE: /https:\/\/[a-z0-9][\w.-]*(?:\.cdninstagram\.com|\.fbcdn\.net)\/[^\s"'<>]{10,120}/gi,
-  binaryFetch: jest.fn(),
-  transcribeWithWhisper: jest.fn(),
-  MAX_VIDEO_BYTES: 24 * 1024 * 1024,
-}));
+jest.mock("@/lib/extractors/instagram-audio", () => {
+  const actual = jest.requireActual("@/lib/extractors/instagram-audio");
+  return {
+    extractVideoUrl: jest.fn(),
+    extractVideoUrlFromApiJson: jest.fn().mockReturnValue(null),
+    CDN_ANY_RE: actual.CDN_ANY_RE,
+    unescapeEmbedded: actual.unescapeEmbedded,
+    binaryFetch: jest.fn(),
+    transcribeWithWhisper: jest.fn(),
+    MAX_VIDEO_BYTES: 24 * 1024 * 1024,
+  };
+});
 
 // Mock openai for the transcribeWithWhisper unit tests (imported separately).
 jest.mock("openai");
@@ -228,6 +232,39 @@ describe("extractVideoUrl", () => {
   test("returns null for JSON-LD VideoObject without contentUrl", () => {
     // The test fixture has a VideoObject with only name/description (no contentUrl).
     expect(realExtractVideoUrl(recipeHtml)).toBeNull();
+  });
+});
+
+// ─── unescapeEmbedded ─────────────────────────────────────────────────────────
+
+const realUnescapeEmbedded = jest.requireActual<
+  typeof import("@/lib/extractors/instagram-audio")
+>("@/lib/extractors/instagram-audio").unescapeEmbedded;
+
+describe("unescapeEmbedded", () => {
+  test("decodes single-level escaped slashes", () => {
+    expect(realUnescapeEmbedded("https:\\/\\/x.mp4")).toBe("https://x.mp4");
+  });
+
+  test("decodes \\u002F unicode slashes and \\u0026 ampersands", () => {
+    expect(realUnescapeEmbedded("a\\u002Fb\\u0026c")).toBe("a/b&c");
+  });
+
+  test("decodes &amp; HTML entities", () => {
+    expect(realUnescapeEmbedded("a&amp;b&amp;c")).toBe("a&b&c");
+  });
+
+  test("unwraps double-escaped slashes (contextJSON nesting) until stable", () => {
+    // Double-escaped: each "/" stored as "\\/" then escaped again to "\\\\/".
+    const doubled = "https:\\\\/\\\\/scontent.cdninstagram.com\\\\/v\\\\/reel.mp4";
+    expect(realUnescapeEmbedded(doubled)).toBe(
+      "https://scontent.cdninstagram.com/v/reel.mp4"
+    );
+  });
+
+  test("leaves a clean URL untouched", () => {
+    const url = "https://scontent.cdninstagram.com/o1/reel.mp4?efg=1";
+    expect(realUnescapeEmbedded(url)).toBe(url);
   });
 });
 
