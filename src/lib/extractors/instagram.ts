@@ -17,6 +17,7 @@ import * as cheerio from "cheerio";
 import { extractWithLlm, type LlmExtractionResult } from "@/lib/extractors/llm-fallback";
 import {
   extractVideoUrl,
+  extractVideoUrlFromApiJson,
   binaryFetch,
   transcribeWithWhisper,
   MAX_VIDEO_BYTES,
@@ -241,10 +242,22 @@ export async function extractFromInstagramWithAudio(
 ): Promise<LlmExtractionResult> {
   // ── Caption path ─────────────────────────────────────────────────────────
   const caption = extractInstagramCaption(html);
+  const captionIsRecipe = caption ? looksLikeRecipe(caption) : false;
+
+  // Diagnostic: always log caption state to Vercel logs.
+  console.error(
+    caption
+      ? `[IG] caption: ${caption.length} chars, looksLikeRecipe=${captionIsRecipe}`
+      : "[IG] caption: null (login wall or private?)"
+  );
+  if (caption && !captionIsRecipe) {
+    console.error(`[IG] caption preview (not a recipe): ${caption.slice(0, 300)}`);
+  }
+
   let captionResult: LlmExtractionResult | null = null;
 
-  if (caption && looksLikeRecipe(caption)) {
-    onStatus("Extracting recipe from caption…");
+  if (caption && captionIsRecipe) {
+    onStatus(`Caption found (${caption.length} chars). Extracting recipe from caption…`);
     captionResult = await extractWithLlm(caption, url);
 
     // Caption yielded a complete recipe (both ingredients and instructions).
@@ -259,43 +272,88 @@ export async function extractFromInstagramWithAudio(
     // Caption partial (missing ingredients or instructions) — try audio.
     if (captionResult.recipe) {
       onStatus("Recipe incomplete in caption. Trying audio for full recipe…");
+    } else {
+      onStatus("Caption LLM extraction failed. Trying audio…");
     }
-    // LLM itself failed on the caption — also fall through to audio.
   } else {
     // Caption absent or not a recipe — explain before trying audio.
     onStatus(
       !caption
         ? "Caption not found (may be private or login-walled). Trying audio…"
-        : "Caption doesn't look like a recipe. Trying audio…"
+        : `Caption (${caption.length} chars) doesn't look like a recipe. Trying audio…`
     );
   }
 
-  // ── Audio fallback ────────────────────────────────────────────────────────
+  // ── Video URL discovery ───────────────────────────────────────────────────
+  // facebookexternalhit HTML never embeds the raw MP4 URL, so extractVideoUrl
+  // on the main page almost always returns null. We try three more sources.
 
   let videoUrl = extractVideoUrl(html);
+  console.error(`[IG] video URL in main page: ${videoUrl ?? "none"}`);
 
-  // facebookexternalhit HTML never embeds the raw MP4 URL — only the og:video
-  // embed page. Fetch that page (it's a public iframe endpoint) and scan it too.
+  // Source 2: Instagram embed page (public iframe endpoint).
+  // og:video contains the embed page URL (e.g. /reel/XXX/embed/captioned/).
+  // Fetch it and scan its HTML for the MP4 CDN URL.
   if (!videoUrl) {
     const $page = cheerio.load(html);
     const embedUrl =
       $page('meta[property="og:video:secure_url"]').attr("content") ??
       $page('meta[property="og:video"]').attr("content") ??
       null;
+    console.error(`[IG] og:video embedUrl: ${embedUrl ?? "none"}`);
+    onStatus(`og:video: ${embedUrl ? "found — fetching embed page…" : "not found in page HTML"}`);
+
     if (embedUrl && embedUrl.includes("instagram.com")) {
-      onStatus("Fetching embed page for video URL…");
       try {
-        const embedRes = await safeFetch(embedUrl);
-        if (embedRes.ok) videoUrl = extractVideoUrl(embedRes.text);
-      } catch {
-        // embed fetch failure is not fatal
+        // Attempt 1: browser UA (appropriate for a public iframe page).
+        const r1 = await safeFetch(embedUrl);
+        console.error(
+          `[IG] embed fetch (browser UA): ok=${r1.ok} status=${r1.status} len=${r1.text.length}`
+        );
+        if (r1.ok) videoUrl = extractVideoUrl(r1.text);
+
+        // Attempt 2: crawler UA (same as main-page fetch — different rendering path).
+        if (!videoUrl) {
+          const r2 = await safeFetch(embedUrl, { userAgent: INSTAGRAM_USER_AGENT });
+          console.error(
+            `[IG] embed fetch (crawler UA): ok=${r2.ok} status=${r2.status} len=${r2.text.length}`
+          );
+          if (r2.ok) videoUrl = extractVideoUrl(r2.text);
+        }
+        console.error(`[IG] video URL from embed page: ${videoUrl ?? "none"}`);
+      } catch (e) {
+        console.error("[IG] embed page fetch threw:", e);
       }
     }
   }
 
+  // Source 3: Instagram internal JSON endpoint (?__a=1&__d=dis).
+  // Returns full post data including video_url for public reels.
+  if (!videoUrl) {
+    try {
+      const shortcode = new URL(url).pathname.match(/\/reel\/([^/?#]+)/)?.[1];
+      if (shortcode) {
+        onStatus("Trying Instagram JSON API for video URL…");
+        const apiUrl = `https://www.instagram.com/reel/${shortcode}/?__a=1&__d=dis`;
+        const apiRes = await safeFetch(apiUrl, { userAgent: INSTAGRAM_USER_AGENT });
+        console.error(`[IG] ?__a=1 fetch: ok=${apiRes.ok} status=${apiRes.status}`);
+        if (apiRes.ok && apiRes.text) {
+          videoUrl = extractVideoUrlFromApiJson(JSON.parse(apiRes.text));
+          console.error(`[IG] video URL from ?__a=1: ${videoUrl ?? "none"}`);
+        }
+      }
+    } catch (e) {
+      console.error("[IG] ?__a=1 fallback failed:", e);
+    }
+  }
+
+  // ── Audio fallback ────────────────────────────────────────────────────────
+
   if (!videoUrl) {
     if (captionResult?.recipe) {
-      onStatus("No video URL found in page — saving what was extracted from the caption (instructions may be incomplete).");
+      onStatus(
+        "No video URL found (tried embed page + JSON API) — saving what the caption contained (instructions may be incomplete)."
+      );
       return captionResult;
     }
     return {

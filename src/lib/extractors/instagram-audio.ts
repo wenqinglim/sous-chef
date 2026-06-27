@@ -83,6 +83,34 @@ const CDN_VIDEO_RE =
   /https:\/\/[a-z0-9][\w.-]*(?:\.cdninstagram\.com|\.fbcdn\.net)\/v\/[^\s"'<>]*?\.mp4[^\s"'<>]*/gi;
 
 /**
+ * Recursively walk a parsed Instagram API JSON response (`?__a=1&__d=dis`) looking
+ * for a `video_url` field pointing at a CDN URL. Returns the first one found, or null.
+ *
+ * Instagram's `?__a=1` endpoint wraps the post data in a deeply nested structure
+ * (GraphQL edges, media nodes) that changes shape between API versions — walking the
+ * whole tree is more robust than trying to hard-code a path.
+ */
+export function extractVideoUrlFromApiJson(json: unknown): string | null {
+  if (!json || typeof json !== "object") return null;
+  if (Array.isArray(json)) {
+    for (const item of json) {
+      const found = extractVideoUrlFromApiJson(item);
+      if (found) return found;
+    }
+    return null;
+  }
+  const obj = json as Record<string, unknown>;
+  if (typeof obj.video_url === "string" && isInstagramCdnUrl(obj.video_url)) {
+    return obj.video_url;
+  }
+  for (const v of Object.values(obj)) {
+    const found = extractVideoUrlFromApiJson(v);
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
  * Parse the reel's video CDN URL from the fetched page.
  *
  * Checks in order:

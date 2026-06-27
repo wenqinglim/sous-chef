@@ -17,6 +17,7 @@ jest.mock("@/lib/extractors/llm-fallback", () => ({
 // Mock the audio helpers so orchestration tests control each step.
 jest.mock("@/lib/extractors/instagram-audio", () => ({
   extractVideoUrl: jest.fn(),
+  extractVideoUrlFromApiJson: jest.fn().mockReturnValue(null),
   binaryFetch: jest.fn(),
   transcribeWithWhisper: jest.fn(),
   MAX_VIDEO_BYTES: 24 * 1024 * 1024,
@@ -226,6 +227,51 @@ describe("extractVideoUrl", () => {
   test("returns null for JSON-LD VideoObject without contentUrl", () => {
     // The test fixture has a VideoObject with only name/description (no contentUrl).
     expect(realExtractVideoUrl(recipeHtml)).toBeNull();
+  });
+});
+
+// ─── extractVideoUrlFromApiJson ───────────────────────────────────────────────
+
+const realExtractVideoUrlFromApiJson = jest.requireActual<
+  typeof import("@/lib/extractors/instagram-audio")
+>("@/lib/extractors/instagram-audio").extractVideoUrlFromApiJson;
+
+describe("extractVideoUrlFromApiJson", () => {
+  const CDN_URL = "https://scontent-sea1-1.cdninstagram.com/v/t50.2886-16/reel.mp4";
+
+  test("returns video_url at top level when it is a CDN URL", () => {
+    expect(realExtractVideoUrlFromApiJson({ video_url: CDN_URL })).toBe(CDN_URL);
+  });
+
+  test("finds video_url nested inside GraphQL edge structure", () => {
+    const graphql = {
+      graphql: {
+        shortcode_media: {
+          __typename: "GraphVideo",
+          video_url: CDN_URL,
+        },
+      },
+    };
+    expect(realExtractVideoUrlFromApiJson(graphql)).toBe(CDN_URL);
+  });
+
+  test("finds video_url inside an array of media items", () => {
+    const data = { items: [{ media_type: 2, video_url: CDN_URL }] };
+    expect(realExtractVideoUrlFromApiJson(data)).toBe(CDN_URL);
+  });
+
+  test("returns null when video_url is absent", () => {
+    expect(realExtractVideoUrlFromApiJson({ title: "Garlic Pasta", caption: "yum" })).toBeNull();
+  });
+
+  test("returns null when video_url is not a CDN URL (e.g. a relative path)", () => {
+    expect(realExtractVideoUrlFromApiJson({ video_url: "/relative/path.mp4" })).toBeNull();
+  });
+
+  test("returns null for non-object inputs", () => {
+    expect(realExtractVideoUrlFromApiJson(null)).toBeNull();
+    expect(realExtractVideoUrlFromApiJson("string")).toBeNull();
+    expect(realExtractVideoUrlFromApiJson(42)).toBeNull();
   });
 });
 
