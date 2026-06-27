@@ -25,6 +25,17 @@ export const MAX_VIDEO_BYTES = 24 * 1024 * 1024;
 const VIDEO_FETCH_TIMEOUT_MS = 30_000;
 
 /**
+ * Headers for CDN video downloads. Matches the UA used to fetch the reel page
+ * so the CDN doesn't reject the request as an anonymous bot (yields 403).
+ * Defined here rather than imported from instagram.ts to avoid a circular dep.
+ */
+const CDN_FETCH_HEADERS = {
+  "User-Agent":
+    "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+  Referer: "https://www.instagram.com/",
+};
+
+/**
  * True if `url` points at an Instagram CDN (scontent*.cdninstagram.com,
  * video*.cdninstagram.com, *.fbcdn.net) rather than an Instagram page.
  * og:video on reels typically contains the HTML embed URL
@@ -134,8 +145,14 @@ export async function binaryFetch(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
   try {
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok || !res.body) return null;
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: CDN_FETCH_HEADERS,
+    });
+    if (!res.ok || !res.body) {
+      console.error(`binaryFetch: HTTP ${res.status} for ${url}`);
+      return null;
+    }
 
     const chunks: Uint8Array[] = [];
     let total = 0;

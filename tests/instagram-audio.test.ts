@@ -237,13 +237,16 @@ describe("binaryFetch", () => {
     expect(result!.length).toBe(4);
   });
 
-  test("returns null when response is not ok", async () => {
+  test("returns null and logs error when response is not ok", async () => {
     global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 403, body: null });
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {});
     const result = await realBinaryFetch("https://cdn.example.com/reel.mp4", {
       maxBytes: 1024,
       timeoutMs: 5000,
     });
     expect(result).toBeNull();
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("403"));
+    spy.mockRestore();
   });
 
   test("returns null when data exceeds maxBytes", async () => {
