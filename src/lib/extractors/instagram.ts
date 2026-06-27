@@ -292,16 +292,32 @@ export async function extractFromInstagramWithAudio(
   console.error(`[IG] video URL in main page: ${videoUrl ?? "none"}`);
 
   // Source 2: Instagram embed page (public iframe endpoint).
-  // og:video contains the embed page URL (e.g. /reel/XXX/embed/captioned/).
-  // Fetch it and scan its HTML for the MP4 CDN URL.
+  // Instagram's facebookexternalhit response often omits og:video, so we construct
+  // the embed URL directly from the reel shortcode rather than relying on the meta tag.
+  // The embed page is public (used in web embeds) and its initial HTML typically
+  // contains the video CDN URL in a <script> data block.
   if (!videoUrl) {
     const $page = cheerio.load(html);
-    const embedUrl =
+    // Log which og: properties Instagram actually gave us (helps diagnose future changes).
+    const ogProps = $page('meta[property^="og:"]')
+      .toArray()
+      .map((el) => $page(el).attr("property"))
+      .filter(Boolean);
+    console.error(`[IG] og: tags present: ${ogProps.join(", ") || "none"}`);
+
+    // Prefer the meta tag if it's there; otherwise construct from shortcode.
+    const ogEmbedUrl =
       $page('meta[property="og:video:secure_url"]').attr("content") ??
       $page('meta[property="og:video"]').attr("content") ??
       null;
-    console.error(`[IG] og:video embedUrl: ${embedUrl ?? "none"}`);
-    onStatus(`og:video: ${embedUrl ? "found — fetching embed page…" : "not found in page HTML"}`);
+    const shortcodeForEmbed = new URL(url).pathname.match(/\/reel\/([^/?#]+)/)?.[1];
+    const embedUrl =
+      ogEmbedUrl ??
+      (shortcodeForEmbed
+        ? `https://www.instagram.com/reel/${shortcodeForEmbed}/embed/captioned/`
+        : null);
+    console.error(`[IG] embed URL: ${embedUrl ?? "none"} (source: ${ogEmbedUrl ? "og:video" : "constructed"})`);
+    onStatus(`Fetching Instagram embed page for video URL…`);
 
     if (embedUrl && embedUrl.includes("instagram.com")) {
       try {
