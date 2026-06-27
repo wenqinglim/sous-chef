@@ -185,6 +185,33 @@ describe("extractVideoUrl", () => {
     expect(realExtractVideoUrl(html)).toBe(CDN_URL);
   });
 
+  test("does not match image thumbnail URLs (.jpg) — only .mp4 videos", () => {
+    // The og:image thumbnail lives on cdninstagram.com/v/ too (t51.* prefix, .jpg).
+    // We must NOT return it — it's a JPEG, not a video, and the CDN returns 403.
+    const html = `<html><head>
+      <meta property="og:image" content="https://scontent-iad3-1.cdninstagram.com/v/t51.82787-15/image.jpg?_nc_ht=scontent-iad3-1.cdninstagram.com&amp;oe=ABC" />
+      <meta property="og:video" content="https://www.instagram.com/reel/ABC123/embed/captioned/" />
+    </head><body></body></html>`;
+    expect(realExtractVideoUrl(html)).toBeNull();
+  });
+
+  test("decodes &amp; HTML entities in CDN URL query parameters", () => {
+    // og:image / og:description attributes in raw HTML use &amp; instead of &.
+    // A video URL found in raw attribute markup would be malformed without this fix.
+    const html = `<html><head>
+      <meta property="og:description" content="some caption" />
+    </head><body>
+    <script type="text/javascript">
+    window.__data={"video_url":"https:\\/\\/scontent-sea1-1.cdninstagram.com\\/v\\/t50.2886-16\\/reel.mp4?_nc_ht=scontent-sea1-1.cdninstagram.com&amp;oe=ABCDEF"};
+    </script>
+    </body></html>`;
+    const result = realExtractVideoUrl(html);
+    expect(result).not.toBeNull();
+    // The returned URL must have & not &amp;
+    expect(result).toContain("oe=ABCDEF");
+    expect(result).not.toContain("&amp;");
+  });
+
   test("returns null when no video meta tags are present", () => {
     const html = `<html><head>
       <meta property="og:description" content="some caption" />

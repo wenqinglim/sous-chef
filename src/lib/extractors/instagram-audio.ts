@@ -76,12 +76,11 @@ function findVideoUrlInJsonLd(value: unknown): string | null {
   return null;
 }
 
-/**
- * Instagram CDN video URLs in raw HTML (including in script tag JSON blobs).
- * Path prefix /v/ is stable for Instagram CDN video content.
- * Terminates at the first quote, whitespace, or angle bracket.
- */
-const CDN_VIDEO_RE = /https:\/\/[a-z0-9][\w.-]*\.cdninstagram\.com\/v\/[^\s"'<>]+/gi;
+// Instagram CDN video URLs. Requires .mp4 to avoid matching image thumbnail
+// URLs (e.g. t51.x.jpg) that share the same cdninstagram.com/v/ path prefix.
+// Covers both CDN families accepted by isInstagramCdnUrl.
+const CDN_VIDEO_RE =
+  /https:\/\/[a-z0-9][\w.-]*(?:\.cdninstagram\.com|\.fbcdn\.net)\/v\/[^\s"'<>]*?\.mp4[^\s"'<>]*/gi;
 
 /**
  * Parse the reel's video CDN URL from the fetched page.
@@ -121,9 +120,10 @@ export function extractVideoUrl(html: string): string | null {
   // <script> tags as JSON data (window._sharedData, VideoObject, etc.).
   // Decode common JSON escape sequences before scanning.
   const decoded = html
-    .replace(/\\u002[Ff]/g, "/")  // / → /
-    .replace(/\\u0026/g, "&")     // & → &
-    .replace(/\\\//g, "/");        // \/ → /
+    .replace(/\\u002[Ff]/g, "/")  // JSON / / / → /
+    .replace(/\\u0026/g, "&")     // JSON & → &
+    .replace(/\\\//g, "/")        // JSON \/ → /
+    .replace(/&amp;/g, "&");      // HTML entity in OG attribute values
 
   CDN_VIDEO_RE.lastIndex = 0;
   return decoded.match(CDN_VIDEO_RE)?.[0] ?? null;
