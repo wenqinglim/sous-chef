@@ -90,23 +90,33 @@ const realExtractVideoUrl = jest.requireActual<
 >("@/lib/extractors/instagram-audio").extractVideoUrl;
 
 describe("extractVideoUrl", () => {
-  test("parses og:video:secure_url", () => {
+  // Use realistic cdninstagram.com domains throughout.
+  const CDN_URL = "https://scontent-sea1-1.cdninstagram.com/v/t50.2886-16/reel.mp4";
+  const EMBED_URL = "https://www.instagram.com/reel/ABC123/embed/captioned/";
+
+  test("parses og:video:secure_url when it is a CDN URL", () => {
     const html = `<html><head>
-      <meta property="og:video:secure_url" content="https://cdn.instagram.com/video/reel.mp4" />
-      <meta property="og:video" content="http://cdn.instagram.com/video/reel.mp4" />
+      <meta property="og:video:secure_url" content="${CDN_URL}" />
+      <meta property="og:video" content="${CDN_URL}" />
     </head><body></body></html>`;
-    expect(realExtractVideoUrl(html)).toBe(
-      "https://cdn.instagram.com/video/reel.mp4"
-    );
+    expect(realExtractVideoUrl(html)).toBe(CDN_URL);
   });
 
-  test("falls back to og:video when secure_url is absent", () => {
+  test("falls back to og:video when secure_url is absent (CDN URL)", () => {
     const html = `<html><head>
-      <meta property="og:video" content="https://cdn.instagram.com/video/reel.mp4" />
+      <meta property="og:video" content="${CDN_URL}" />
     </head><body></body></html>`;
-    expect(realExtractVideoUrl(html)).toBe(
-      "https://cdn.instagram.com/video/reel.mp4"
-    );
+    expect(realExtractVideoUrl(html)).toBe(CDN_URL);
+  });
+
+  test("skips og:video that is an Instagram embed page URL (not a video CDN)", () => {
+    // Instagram's og:video typically contains the embed HTML page, not the MP4.
+    // We must not return it — fetching it would give HTML, not audio.
+    const html = `<html><head>
+      <meta property="og:video" content="${EMBED_URL}" />
+      <meta property="og:video:type" content="text/html" />
+    </head><body></body></html>`;
+    expect(realExtractVideoUrl(html)).toBeNull();
   });
 
   test("parses contentUrl from JSON-LD VideoObject", () => {
@@ -117,35 +127,62 @@ describe("extractVideoUrl", () => {
         "@type": "VideoObject",
         "name": "chef_demo on Instagram",
         "description": "Recipe caption here",
-        "contentUrl": "https://scontent.cdninstagram.com/v/reel.mp4?params=123"
+        "contentUrl": "${CDN_URL}"
       }
       </script>
     </head><body></body></html>`;
-    expect(realExtractVideoUrl(html)).toBe(
-      "https://scontent.cdninstagram.com/v/reel.mp4?params=123"
-    );
+    expect(realExtractVideoUrl(html)).toBe(CDN_URL);
   });
 
-  test("prefers og:video:secure_url over JSON-LD contentUrl", () => {
+  test("prefers og:video CDN URL over JSON-LD contentUrl", () => {
+    const otherCdn = "https://scontent-lax3-1.cdninstagram.com/v/t50/jsonld.mp4";
     const html = `<html><head>
-      <meta property="og:video:secure_url" content="https://cdn.instagram.com/og-video.mp4" />
+      <meta property="og:video:secure_url" content="${CDN_URL}" />
       <script type="application/ld+json">
-      { "@type": "VideoObject", "contentUrl": "https://scontent.cdninstagram.com/jsonld-video.mp4" }
+      { "@type": "VideoObject", "contentUrl": "${otherCdn}" }
       </script>
     </head><body></body></html>`;
-    expect(realExtractVideoUrl(html)).toBe("https://cdn.instagram.com/og-video.mp4");
+    expect(realExtractVideoUrl(html)).toBe(CDN_URL);
+  });
+
+  test("falls back to JSON-LD contentUrl when og:video is an embed URL", () => {
+    const html = `<html><head>
+      <meta property="og:video" content="${EMBED_URL}" />
+      <script type="application/ld+json">
+      { "@type": "VideoObject", "contentUrl": "${CDN_URL}" }
+      </script>
+    </head><body></body></html>`;
+    expect(realExtractVideoUrl(html)).toBe(CDN_URL);
   });
 
   test("falls back to JSON-LD contentUrl when og:video is absent", () => {
     const html = `<html><head>
       <meta property="og:description" content="some caption" />
       <script type="application/ld+json">
-      { "@type": "VideoObject", "contentUrl": "https://scontent.cdninstagram.com/v/reel.mp4" }
+      { "@type": "VideoObject", "contentUrl": "${CDN_URL}" }
       </script>
     </head><body></body></html>`;
-    expect(realExtractVideoUrl(html)).toBe(
-      "https://scontent.cdninstagram.com/v/reel.mp4"
-    );
+    expect(realExtractVideoUrl(html)).toBe(CDN_URL);
+  });
+
+  test("finds CDN video URL embedded in script tag JSON (regex scan)", () => {
+    // Simulates window._sharedData or window.__additionalDataLoaded patterns
+    // where Instagram embeds the video CDN URL in a <script> block as a JSON
+    // string value — common when JSON-LD and og:video tags are absent.
+    const html = `<html><head>
+      <meta property="og:description" content="some caption" />
+    </head><body>
+    <script type="text/javascript">
+    window.__additionalDataLoaded('/reel/ABC123/',{"items":[{"video_url":"${CDN_URL}?bytestart=0&byteend=1234"}]});
+    </script>
+    </body></html>`;
+    expect(realExtractVideoUrl(html)).toBe(CDN_URL + "?bytestart=0&byteend=1234");
+  });
+
+  test("handles JSON-escaped slashes in CDN URL (regex scan)", () => {
+    const escaped = CDN_URL.replace(/\//g, "\\/");
+    const html = `<html><body><script>var x={"video_url":"${escaped}"};</script></body></html>`;
+    expect(realExtractVideoUrl(html)).toBe(CDN_URL);
   });
 
   test("returns null when no video meta tags are present", () => {

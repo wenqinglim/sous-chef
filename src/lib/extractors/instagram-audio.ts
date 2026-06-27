@@ -5,8 +5,13 @@
  * audio using Groq's hosted Whisper model (whisper-large-v3) and then run
  * the transcript through the existing LLM recipe extractor.
  *
- * The video URL is parsed from og:video meta tags OR from a JSON-LD
- * VideoObject.contentUrl field — Instagram's crawler HTML uses the latter.
+ * Video URL discovery (in priority order):
+ *   1. og:video:secure_url / og:video — only when pointing at the CDN, not
+ *      Instagram's own embed page (which is HTML, not video).
+ *   2. JSON-LD VideoObject.contentUrl.
+ *   3. Regex scan of the raw HTML for CDN MP4 URLs embedded in <script> JSON
+ *      data (e.g. window._sharedData, window.__additionalDataLoaded).
+ *
  * Transcription requires GROQ_API_KEY.
  */
 
@@ -20,8 +25,26 @@ export const MAX_VIDEO_BYTES = 24 * 1024 * 1024;
 const VIDEO_FETCH_TIMEOUT_MS = 30_000;
 
 /**
+ * True if `url` points at an Instagram CDN (scontent*.cdninstagram.com,
+ * video*.cdninstagram.com, *.fbcdn.net) rather than an Instagram page.
+ * og:video on reels typically contains the HTML embed URL
+ * (`/reel/XXX/embed/captioned/`), which is useless for audio extraction.
+ */
+function isInstagramCdnUrl(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+    return (
+      hostname.endsWith(".cdninstagram.com") ||
+      hostname.endsWith(".fbcdn.net")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Walk a parsed JSON-LD value looking for a VideoObject.contentUrl (the CDN
- * URL of the actual video file). Returns the first HTTPS URL found, or null.
+ * URL of the actual video file). Returns the first CDN URL found, or null.
  */
 function findVideoUrlInJsonLd(value: unknown): string | null {
   if (Array.isArray(value)) {
@@ -31,7 +54,7 @@ function findVideoUrlInJsonLd(value: unknown): string | null {
     }
   } else if (value && typeof value === "object") {
     const obj = value as Record<string, unknown>;
-    if (typeof obj.contentUrl === "string" && obj.contentUrl.startsWith("https://")) {
+    if (typeof obj.contentUrl === "string" && isInstagramCdnUrl(obj.contentUrl)) {
       return obj.contentUrl;
     }
     for (const v of Object.values(obj)) {
@@ -43,26 +66,31 @@ function findVideoUrlInJsonLd(value: unknown): string | null {
 }
 
 /**
+ * Instagram CDN video URLs in raw HTML (including in script tag JSON blobs).
+ * Path prefix /v/ is stable for Instagram CDN video content.
+ * Terminates at the first quote, whitespace, or angle bracket.
+ */
+const CDN_VIDEO_RE = /https:\/\/[a-z0-9][\w.-]*\.cdninstagram\.com\/v\/[^\s"'<>]+/gi;
+
+/**
  * Parse the reel's video CDN URL from the fetched page.
  *
  * Checks in order:
- *   1. og:video:secure_url meta tag
- *   2. og:video meta tag
- *   3. JSON-LD VideoObject.contentUrl (Instagram's crawler HTML uses this)
+ *   1. og:video:secure_url / og:video (only CDN URLs — skips embed pages).
+ *   2. JSON-LD VideoObject.contentUrl.
+ *   3. Regex scan of the raw HTML for CDN URLs in <script> JSON data.
  */
 export function extractVideoUrl(html: string): string | null {
   const $ = cheerio.load(html);
 
-  // 1. og:video meta tags — fast path.
-  const ogVideo =
-    $('meta[property="og:video:secure_url"]').attr("content") ??
-    $('meta[property="og:video"]').attr("content") ??
-    null;
-  if (ogVideo) return ogVideo;
+  // 1. og:video meta tags — only use if they point to the CDN, not an embed page.
+  // Instagram's og:video often contains `/reel/XXX/embed/captioned/` (HTML), not MP4.
+  for (const prop of ["og:video:secure_url", "og:video"]) {
+    const val = $(`meta[property="${prop}"]`).attr("content");
+    if (val && isInstagramCdnUrl(val)) return val;
+  }
 
-  // 2. JSON-LD VideoObject.contentUrl — Instagram's crawler-served HTML
-  // typically puts the video CDN URL here rather than (or in addition to)
-  // og:video meta tags.
+  // 2. JSON-LD VideoObject.contentUrl.
   let jsonLdVideo: string | null = null;
   $('script[type="application/ld+json"]').each((_, el) => {
     if (jsonLdVideo) return;
@@ -75,7 +103,19 @@ export function extractVideoUrl(html: string): string | null {
       // ignore malformed JSON-LD
     }
   });
-  return jsonLdVideo;
+  if (jsonLdVideo) return jsonLdVideo;
+
+  // 3. Regex scan for CDN MP4 URLs embedded anywhere in the page.
+  // Instagram's crawler HTML sometimes includes the video CDN URL inside
+  // <script> tags as JSON data (window._sharedData, VideoObject, etc.).
+  // Decode common JSON escape sequences before scanning.
+  const decoded = html
+    .replace(/\\u002[Ff]/g, "/")  // / → /
+    .replace(/\\u0026/g, "&")     // & → &
+    .replace(/\\\//g, "/");        // \/ → /
+
+  CDN_VIDEO_RE.lastIndex = 0;
+  return decoded.match(CDN_VIDEO_RE)?.[0] ?? null;
 }
 
 /**
