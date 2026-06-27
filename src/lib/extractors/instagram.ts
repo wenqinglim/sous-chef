@@ -15,6 +15,12 @@
 
 import * as cheerio from "cheerio";
 import { extractWithLlm, type LlmExtractionResult } from "@/lib/extractors/llm-fallback";
+import {
+  extractVideoUrl,
+  binaryFetch,
+  transcribeWithWhisper,
+  MAX_VIDEO_BYTES,
+} from "@/lib/extractors/instagram-audio";
 import { UNIT_RE_SOURCE } from "@/lib/units/parser";
 
 const INSTAGRAM_HOSTS = new Set([
@@ -211,4 +217,82 @@ export async function extractFromInstagram(
   }
 
   return extractWithLlm(caption, url);
+}
+
+/**
+ * Extract a recipe from a fetched Instagram reel page, with audio fallback.
+ *
+ * Tries the caption first. If the caption is absent or not a recipe, downloads
+ * the reel video (via og:video), transcribes it with Groq Whisper, and runs
+ * the transcript through the LLM extractor.
+ *
+ * @param onStatus  Called with human-readable progress strings for UI display.
+ */
+export async function extractFromInstagramWithAudio(
+  html: string,
+  url: string,
+  onStatus: (msg: string) => void
+): Promise<LlmExtractionResult> {
+  // ── Caption path ─────────────────────────────────────────────────────────
+  const caption = extractInstagramCaption(html);
+
+  if (caption && looksLikeRecipe(caption)) {
+    onStatus("Extracting recipe from caption…");
+    return extractWithLlm(caption, url);
+  }
+
+  // ── Audio fallback ────────────────────────────────────────────────────────
+  if (!caption) {
+    onStatus(
+      "Caption not found (may be private or login-walled). Trying audio…"
+    );
+  } else {
+    onStatus("Caption doesn't look like a recipe. Trying audio…");
+  }
+
+  const videoUrl = extractVideoUrl(html);
+  if (!videoUrl) {
+    return {
+      recipe: null,
+      error:
+        "No recipe found in caption and no video URL available for audio extraction.",
+      kind: "no_recipe",
+    };
+  }
+
+  onStatus("Downloading video…");
+  const videoBuffer = await binaryFetch(videoUrl, {
+    maxBytes: MAX_VIDEO_BYTES,
+    timeoutMs: 30_000,
+  });
+  if (!videoBuffer) {
+    return {
+      recipe: null,
+      error:
+        "Could not download the reel video for audio extraction (too large or unavailable).",
+      kind: "extractor_error",
+    };
+  }
+
+  onStatus("Transcribing audio…");
+  const transcript = await transcribeWithWhisper(videoBuffer);
+  if (!transcript) {
+    return {
+      recipe: null,
+      error:
+        "Audio transcription failed. Check that GROQ_API_KEY is set and the reel is under 24 MB.",
+      kind: "extractor_error",
+    };
+  }
+
+  if (!looksLikeRecipe(transcript)) {
+    return {
+      recipe: null,
+      error: "The audio transcript doesn't appear to contain a recipe.",
+      kind: "no_recipe",
+    };
+  }
+
+  onStatus("Extracting recipe from audio transcript…");
+  return extractWithLlm(transcript, url);
 }

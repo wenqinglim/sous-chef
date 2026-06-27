@@ -3,9 +3,8 @@
 /**
  * AddRecipeForm — import a recipe into the library from a URL.
  *
- * POSTs to /api/extract (which auto-saves), then navigates to the new recipe's
- * detail page. If the DB is unreachable the recipe can't be saved/viewed, so we
- * surface that instead of routing to a 404.
+ * POSTs to /api/extract (SSE stream), shows live status messages while
+ * extracting, then navigates to the new recipe's detail page.
  */
 
 import { useState } from "react";
@@ -15,6 +14,7 @@ import type { Recipe } from "@/types";
 export default function AddRecipeForm() {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
@@ -23,6 +23,7 @@ export default function AddRecipeForm() {
     if (!u || loading) return;
     setLoading(true);
     setError(null);
+    setStatusMsg(null);
 
     try {
       const res = await fetch("/api/extract", {
@@ -30,27 +31,56 @@ export default function AddRecipeForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: u }),
       });
-      const data = await res.json();
 
+      // Pre-stream validation errors return plain JSON with a non-200 status.
       if (!res.ok) {
+        const data = await res.json();
         setError(data.error ?? "Couldn't import that recipe");
         return;
       }
 
-      const recipe = data.recipe as Recipe;
-      if (data.saved && recipe?.id) {
-        setUrl("");
-        router.push(`/recipes/${recipe.id}`);
-      } else {
-        // Extraction worked but the library DB is down — nothing to open.
-        setError(
-          "Imported the recipe, but couldn't save it to your library (database unavailable). Try again shortly."
-        );
+      // Read the SSE stream.
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      outer: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() ?? "";
+
+        for (const event of events) {
+          const line = event.trim();
+          if (!line.startsWith("data: ")) continue;
+          const payload = JSON.parse(line.slice(6));
+
+          if (payload.type === "status") {
+            setStatusMsg(payload.message);
+          } else if (payload.type === "result") {
+            const recipe = payload.recipe as Recipe;
+            if (payload.saved && recipe?.id) {
+              setUrl("");
+              router.push(`/recipes/${recipe.id}`);
+            } else {
+              setError(
+                "Imported the recipe, but couldn't save it to your library (database unavailable). Try again shortly."
+              );
+            }
+            break outer;
+          } else if (payload.type === "error") {
+            setError(payload.error ?? "Couldn't import that recipe");
+            break outer;
+          }
+        }
       }
     } catch {
       setError("Network error — please try again");
     } finally {
       setLoading(false);
+      setStatusMsg(null);
     }
   }
 
@@ -60,7 +90,8 @@ export default function AddRecipeForm() {
         Add a recipe by URL
       </label>
       <p className="text-xs text-stone-500 mb-2">
-        A recipe website, or an Instagram reel whose caption has the full recipe.
+        A recipe website, or an Instagram reel whose caption or audio has the
+        full recipe.
       </p>
       <div className="flex gap-2 items-stretch flex-wrap">
         <input
@@ -79,6 +110,9 @@ export default function AddRecipeForm() {
           {loading ? "Importing…" : "Add recipe"}
         </button>
       </div>
+      {loading && statusMsg && (
+        <p className="text-xs text-stone-500 mt-2">{statusMsg}</p>
+      )}
       {error && <p className="text-sm text-red-600 mt-2">⚠️ {error}</p>}
     </div>
   );
