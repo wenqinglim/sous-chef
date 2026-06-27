@@ -41,7 +41,7 @@ DATABASE_URL=postgresql://...   # Neon connection string; injected by the Vercel
 npm install
 npm run db:deploy  # apply Prisma migrations (once per database)
 npm run dev        # http://localhost:3000
-npm test           # run all tests (343 passing; no DB needed — Prisma is mocked)
+npm test           # run all tests (345 passing; no DB needed — Prisma is mocked)
 npm run build      # production build: prisma generate → migrate deploy → next build
 ```
 
@@ -53,7 +53,7 @@ npm run build      # production build: prisma generate → migrate deploy → ne
 
 ## Test Coverage
 
-343 tests across 9 suites:
+345 tests across 9 suites:
 - `tests/units.test.ts` — unit conversions + ingredient text parser, incl. mixed/unicode ranges
 - `tests/normalization.test.ts` — registry lookup, alias matching, soy sauce disambiguation, messy-name robustness
 - `tests/extraction.test.ts` — schema.org extraction for all 4 target sites + `parseInstructions` for every JSON-LD instruction shape

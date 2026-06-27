@@ -46,4 +46,15 @@ describe("extractJsonText", () => {
   test("returns trimmed input when there is no object", () => {
     expect(extractJsonText("  no json here  ")).toBe("no json here");
   });
+
+  test("returns a top-level JSON array intact (not truncated to first object)", () => {
+    const arr = `[{"a":1},{"b":2}]`;
+    expect(extractJsonText(arr)).toBe(arr);
+    expect(JSON.parse(extractJsonText(arr))).toEqual([{ a: 1 }, { b: 2 }]);
+  });
+
+  test("slices a prose-wrapped top-level array correctly", () => {
+    const noisy = `Here you go:\n[{"a":1},{"b":2}]\nHope that helps!`;
+    expect(JSON.parse(extractJsonText(noisy))).toEqual([{ a: 1 }, { b: 2 }]);
+  });
 });

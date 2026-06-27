@@ -83,10 +83,11 @@ export interface LlmExtractionResult {
 }
 
 /**
- * Pull the JSON object out of an LLM text response, tolerating the markdown
+ * Pull the JSON value out of an LLM text response, tolerating the markdown
  * Claude sometimes adds despite being asked not to. In order:
  *   1. strip a surrounding ```` ``` ```` / ```` ```json ```` fence, else
- *   2. slice from the first "{" to the last "}" (drops leading/trailing prose), else
+ *   2. slice to the outermost JSON value — object `{…}` or array `[…]`,
+ *      whichever opens first — dropping any leading/trailing prose, else
  *   3. return the trimmed input unchanged.
  * Exported for testing.
  */
@@ -94,13 +95,19 @@ export function extractJsonText(raw: string): string {
   const trimmed = raw.trim();
 
   const fenced = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i);
-  if (fenced) return fenced[1].trim();
+  const body = fenced ? fenced[1].trim() : trimmed;
 
-  const first = trimmed.indexOf("{");
-  const last = trimmed.lastIndexOf("}");
-  if (first !== -1 && last > first) return trimmed.slice(first, last + 1);
+  // Slice to whichever delimiter opens first so a top-level array isn't
+  // truncated to its first inner object by an object-only slice.
+  const objStart = body.indexOf("{");
+  const arrStart = body.indexOf("[");
+  const useArray =
+    arrStart !== -1 && (objStart === -1 || arrStart < objStart);
+  const start = useArray ? arrStart : objStart;
+  const end = useArray ? body.lastIndexOf("]") : body.lastIndexOf("}");
+  if (start !== -1 && end > start) return body.slice(start, end + 1);
 
-  return trimmed;
+  return body;
 }
 
 /**
@@ -139,7 +146,7 @@ export async function extractWithLlm(
     if (content.type !== "text") {
       return { recipe: null, error: "LLM returned non-text content", kind: "extractor_error" };
     }
-    rawJson = content.text.trim();
+    rawJson = content.text; // extractJsonText() trims before parsing
   } catch (err) {
     return {
       recipe: null,
