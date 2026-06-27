@@ -44,6 +44,44 @@ const INSTAGRAM_HOSTS = new Set([
 export const INSTAGRAM_USER_AGENT =
   "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)";
 
+/**
+ * Public web App ID for instagram.com. Required (alongside a session cookie) for
+ * the authenticated web endpoints (`?__a=1`, `/api/v1/media/.../info/`) to return
+ * JSON rather than a login redirect. This is the same constant the website itself
+ * sends; it is not a secret.
+ */
+const IG_APP_ID = "936619743392459";
+
+/** A desktop browser UA used for authenticated (cookie-bearing) fetches. */
+const IG_BROWSER_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+/** Extract the reel/post shortcode from an Instagram URL (`/reel/X/`, `/reels/X/`, `/p/X/`). */
+export function instagramShortcode(url: string): string | null {
+  try {
+    return (
+      new URL(url).pathname.match(/\/(?:reels?|p|tv)\/([^/?#]+)/)?.[1] ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * When `IG_SESSIONID` is configured, Instagram serves the real page/JSON (caption
+ * + video) instead of a login wall. This builds the Cookie + App-ID headers; returns
+ * null when no session cookie is set so callers can skip the authenticated path.
+ */
+function instagramAuthHeaders(): Record<string, string> | null {
+  const sessionId = process.env.IG_SESSIONID;
+  if (!sessionId) return null;
+  return {
+    Cookie: `sessionid=${sessionId}`,
+    "X-IG-App-ID": IG_APP_ID,
+    "User-Agent": IG_BROWSER_UA,
+  };
+}
+
 /** True when `url` points at Instagram, so the route uses the caption path. */
 export function isInstagramUrl(url: string): boolean {
   try {
@@ -242,8 +280,35 @@ export async function extractFromInstagramWithAudio(
   url: string,
   onStatus: (msg: string) => void
 ): Promise<LlmExtractionResult> {
+  // ── Authenticated re-fetch ─────────────────────────────────────────────────
+  // The crawler/anonymous HTML passed in is now login-walled (no caption, no
+  // video). When IG_SESSIONID is set, re-fetch the reel page WITH the session
+  // cookie: Instagram then serves the real page (caption + video data), which we
+  // use as the working HTML for everything downstream.
+  let workingHtml = html;
+  const authHeaders = instagramAuthHeaders();
+  const shortcode = instagramShortcode(url);
+
+  if (authHeaders && shortcode) {
+    onStatus("Fetching reel with Instagram session…");
+    try {
+      const authed = await safeFetch(`https://www.instagram.com/reel/${shortcode}/`, {
+        headers: authHeaders,
+      });
+      console.error(
+        `[IG] authed page fetch: ok=${authed.ok} status=${authed.status} len=${authed.text.length}`
+      );
+      // A login redirect comes back short; the real page is large.
+      if (authed.ok && authed.text.length > 2000) workingHtml = authed.text;
+    } catch (e) {
+      console.error("[IG] authed page fetch failed:", e);
+    }
+  } else if (!authHeaders) {
+    console.error("[IG] IG_SESSIONID not set — using anonymous HTML (caption/video may be login-walled).");
+  }
+
   // ── Caption path ─────────────────────────────────────────────────────────
-  const caption = extractInstagramCaption(html);
+  const caption = extractInstagramCaption(workingHtml);
   const captionIsRecipe = caption ? looksLikeRecipe(caption) : false;
 
   // Diagnostic: always log caption state to Vercel logs.
@@ -287,19 +352,43 @@ export async function extractFromInstagramWithAudio(
   }
 
   // ── Video URL discovery ───────────────────────────────────────────────────
-  // facebookexternalhit HTML never embeds the raw MP4 URL, so extractVideoUrl
-  // on the main page almost always returns null. We try three more sources.
+  // Several sources, tried cheapest-reliable first.
 
-  let videoUrl = extractVideoUrl(html);
-  console.error(`[IG] video URL in main page: ${videoUrl ?? "none"}`);
+  // Source 1: the working HTML (authenticated page when IG_SESSIONID is set, else
+  // the anonymous crawler HTML which rarely contains the MP4).
+  let videoUrl = extractVideoUrl(workingHtml);
+  console.error(`[IG] video URL in page HTML: ${videoUrl ?? "none"}`);
 
-  // Source 2: Instagram embed page (public iframe endpoint).
+  // Source 2 (primary when authenticated): Instagram's web JSON API. With a session
+  // cookie + App-ID it returns the full media object (video_versions[].url). This is
+  // the reliable path now that anonymous endpoints are login-walled.
+  if (!videoUrl && authHeaders && shortcode) {
+    for (const apiUrl of [
+      `https://www.instagram.com/api/v1/media/${shortcode}/info/`,
+      `https://www.instagram.com/reel/${shortcode}/?__a=1&__d=dis`,
+    ]) {
+      try {
+        onStatus("Querying Instagram API (authenticated) for video…");
+        const apiRes = await safeFetch(apiUrl, { headers: authHeaders });
+        console.error(
+          `[IG] authed API ${apiUrl.includes("/api/v1/") ? "media/info" : "?__a=1"}: ok=${apiRes.ok} status=${apiRes.status} len=${apiRes.text.length}`
+        );
+        if (apiRes.ok && apiRes.text) {
+          videoUrl = extractVideoUrlFromApiJson(JSON.parse(apiRes.text));
+          console.error(`[IG] video URL from authed API: ${videoUrl ?? "none"}`);
+          if (videoUrl) break;
+        }
+      } catch (e) {
+        console.error(`[IG] authed API fetch failed (${apiUrl}):`, e);
+      }
+    }
+  }
+
+  // Source 3: Instagram embed page (public iframe endpoint).
   // Instagram's facebookexternalhit response often omits og:video, so we construct
   // the embed URL directly from the reel shortcode rather than relying on the meta tag.
-  // The embed page is public (used in web embeds) and its initial HTML typically
-  // contains the video CDN URL in a <script> data block.
   if (!videoUrl) {
-    const $page = cheerio.load(html);
+    const $page = cheerio.load(workingHtml);
     // Log which og: properties Instagram actually gave us (helps diagnose future changes).
     const ogProps = $page('meta[property^="og:"]')
       .toArray()
@@ -312,11 +401,10 @@ export async function extractFromInstagramWithAudio(
       $page('meta[property="og:video:secure_url"]').attr("content") ??
       $page('meta[property="og:video"]').attr("content") ??
       null;
-    const shortcodeForEmbed = new URL(url).pathname.match(/\/reel\/([^/?#]+)/)?.[1];
     const embedUrl =
       ogEmbedUrl ??
-      (shortcodeForEmbed
-        ? `https://www.instagram.com/reel/${shortcodeForEmbed}/embed/captioned/`
+      (shortcode
+        ? `https://www.instagram.com/reel/${shortcode}/embed/captioned/`
         : null);
     console.error(`[IG] embed URL: ${embedUrl ?? "none"} (source: ${ogEmbedUrl ? "og:video" : "constructed"})`);
     onStatus(`Fetching Instagram embed page for video URL…`);
@@ -378,20 +466,17 @@ export async function extractFromInstagramWithAudio(
     }
   }
 
-  // Source 3: Instagram internal JSON endpoint (?__a=1&__d=dis).
-  // Returns full post data including video_url for public reels.
-  if (!videoUrl) {
+  // Source 4: anonymous ?__a=1&__d=dis endpoint (last resort when no session
+  // cookie is configured — usually login-walled now, but kept for completeness).
+  if (!videoUrl && !authHeaders && shortcode) {
     try {
-      const shortcode = new URL(url).pathname.match(/\/reel\/([^/?#]+)/)?.[1];
-      if (shortcode) {
-        onStatus("Trying Instagram JSON API for video URL…");
-        const apiUrl = `https://www.instagram.com/reel/${shortcode}/?__a=1&__d=dis`;
-        const apiRes = await safeFetch(apiUrl, { userAgent: INSTAGRAM_USER_AGENT });
-        console.error(`[IG] ?__a=1 fetch: ok=${apiRes.ok} status=${apiRes.status}`);
-        if (apiRes.ok && apiRes.text) {
-          videoUrl = extractVideoUrlFromApiJson(JSON.parse(apiRes.text));
-          console.error(`[IG] video URL from ?__a=1: ${videoUrl ?? "none"}`);
-        }
+      onStatus("Trying Instagram JSON API for video URL…");
+      const apiUrl = `https://www.instagram.com/reel/${shortcode}/?__a=1&__d=dis`;
+      const apiRes = await safeFetch(apiUrl, { userAgent: INSTAGRAM_USER_AGENT });
+      console.error(`[IG] ?__a=1 fetch (anon): ok=${apiRes.ok} status=${apiRes.status}`);
+      if (apiRes.ok && apiRes.text) {
+        videoUrl = extractVideoUrlFromApiJson(JSON.parse(apiRes.text));
+        console.error(`[IG] video URL from ?__a=1: ${videoUrl ?? "none"}`);
       }
     } catch (e) {
       console.error("[IG] ?__a=1 fallback failed:", e);
@@ -403,14 +488,17 @@ export async function extractFromInstagramWithAudio(
   if (!videoUrl) {
     if (captionResult?.recipe) {
       onStatus(
-        "No video URL found (tried embed page + JSON API) — saving what the caption contained (instructions may be incomplete)."
+        "No video URL found — saving what the caption contained (instructions may be incomplete)."
       );
       return captionResult;
     }
+    const hint = authHeaders
+      ? "The reel may be private, or the IG_SESSIONID cookie may have expired."
+      : "Set IG_SESSIONID (a logged-in Instagram session cookie) to let the app read the caption and video.";
     return {
       recipe: null,
       error:
-        "No recipe found in caption and no video URL available for audio extraction.",
+        `No recipe found in caption and no video URL available for audio extraction. ${hint}`,
       kind: "no_recipe",
     };
   }

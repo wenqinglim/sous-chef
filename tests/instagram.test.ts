@@ -10,6 +10,7 @@ jest.mock("@/lib/extractors/llm-fallback", () => ({
 import { extractWithLlm } from "@/lib/extractors/llm-fallback";
 import {
   isInstagramUrl,
+  instagramShortcode,
   extractInstagramCaption,
   looksLikeRecipe,
   extractFromInstagram,
@@ -51,6 +52,26 @@ describe("isInstagramUrl", () => {
   ])("rejects %s", (url) => {
     expect(isInstagramUrl(url)).toBe(false);
   });
+});
+
+// ─── instagramShortcode ───────────────────────────────────────────────────────
+
+describe("instagramShortcode", () => {
+  test.each([
+    ["https://www.instagram.com/reel/DVY80PpgsRQ/", "DVY80PpgsRQ"],
+    ["https://instagram.com/reels/ABC123/", "ABC123"],
+    ["https://www.instagram.com/p/XyZ_-9/?utm_source=ig_web", "XyZ_-9"],
+    ["https://www.instagram.com/tv/Clip99/", "Clip99"],
+  ])("extracts shortcode from %s", (url, expected) => {
+    expect(instagramShortcode(url)).toBe(expected);
+  });
+
+  test.each(["https://www.instagram.com/someuser/", "not a url"])(
+    "returns null for %s",
+    (url) => {
+      expect(instagramShortcode(url)).toBeNull();
+    }
+  );
 });
 
 // ─── extractInstagramCaption ──────────────────────────────────────────────────

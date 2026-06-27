@@ -162,7 +162,11 @@ export interface SafeFetchResult {
  */
 export async function safeFetch(
   rawUrl: string,
-  opts: { timeoutMs?: number; userAgent?: string } = {}
+  opts: {
+    timeoutMs?: number;
+    userAgent?: string;
+    headers?: Record<string, string>;
+  } = {}
 ): Promise<SafeFetchResult> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const userAgent = opts.userAgent ?? DEFAULT_USER_AGENT;
@@ -176,6 +180,8 @@ export async function safeFetch(
         "User-Agent": userAgent,
         Accept: "text/html,application/xhtml+xml",
         "Accept-Language": "en-US,en;q=0.9",
+        // Caller-supplied headers (e.g. Cookie, X-IG-App-ID) override the defaults.
+        ...opts.headers,
       },
       redirect: "manual",
       signal: AbortSignal.timeout(timeoutMs),

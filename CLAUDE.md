@@ -33,6 +33,8 @@ Copy `.env.local.example` to `.env.local` and fill in:
 ```
 ANTHROPIC_API_KEY=sk-ant-...
 DATABASE_URL=postgresql://...   # Neon connection string; injected by the Vercel↔Neon integration in prod
+GROQ_API_KEY=gsk_...            # Groq Whisper — Instagram reel audio transcription
+IG_SESSIONID=...                # Instagram session cookie — required to import reels (see Instagram reels below)
 ```
 
 ## Running Locally
@@ -203,15 +205,33 @@ with the "N likes, M comments - user on date:" preamble stripped) → `looksLike
 heuristic gate (recipe keyword OR ≥3 quantity+unit matches; rejects non-recipe captions before
 spending an LLM call) → `extractWithLlm(caption, url)`. `cuisine_source` is `unknown`.
 
-Reels are fetched with a **`facebookexternalhit` crawler User-Agent** (`INSTAGRAM_USER_AGENT`,
-passed to `safeFetch`): a generic browser UA gets a login-walled JS shell with no caption, whereas
-Instagram renders the rich `og:`/JSON-LD caption preview for link-unfurl crawlers. The route picks
-the UA based on `isInstagramUrl` *before* fetching.
+**Audio fallback.** Many creators narrate the method instead of writing it. When the caption is
+absent/incomplete, `extractFromInstagramWithAudio` finds the reel's video URL, downloads it
+(`binaryFetch`, 24 MB cap), transcribes it with Groq Whisper (`transcribeWithWhisper`,
+`whisper-large-v3`), and runs the transcript through the same LLM extractor. It degrades
+gracefully: if audio fails but the caption gave a partial recipe, the partial is saved rather
+than erroring.
 
-> **Known limitation (server-fetch only):** even with the crawler UA, Instagram can still withhold
-> the caption for some reels (and `og:description` may be truncated), so a few fail to import
-> (surfaced as a 422/502 error, never a bad recipe). A manual "paste the caption" fallback is the
-> natural follow-up.
+**Authentication (`IG_SESSIONID`) is now required.** As of 2025 Instagram login-walls *both* the
+caption and the video for logged-out/datacenter requests — the `facebookexternalhit` crawler UA
+gets a "Welcome back to Instagram. Sign in…" shell, and the embed page (`/reel/X/embed/captioned/`)
+is a JS shell whose initial HTML contains no video URL (only `static.cdninstagram.com/rsrc.php`
+asset bundles). So the route now re-fetches the reel **with a session cookie**:
+`instagramAuthHeaders()` builds `Cookie: sessionid=…` + `X-IG-App-ID: 936619743392459` from the
+`IG_SESSIONID` env var. With it, `extractFromInstagramWithAudio` (1) re-fetches the reel page
+authenticated and uses that HTML for caption + video, and (2) queries the web JSON API
+(`/api/v1/media/{shortcode}/info/`, then `?__a=1&__d=dis`) and pulls the CDN URL out of
+`video_versions[].url` via `extractVideoUrlFromApiJson`. Video-URL discovery order:
+authenticated page HTML → authenticated JSON API → public embed page (dual-UA) →
+anonymous `?__a=1` (only when no cookie).
+
+Every step logs a `[IG] …` line (`console.error` → Vercel logs) and emits a human-readable
+`onStatus` message (→ SSE → UI), so a failed import shows exactly which stage broke.
+
+> **Operational note:** `IG_SESSIONID` is a personal session cookie (instagram.com → DevTools →
+> Application → Cookies → `sessionid`). It expires every few months; when reel imports start
+> failing with "the IG_SESSIONID cookie may have expired", re-paste a fresh value. Without the
+> cookie set, reel imports fail with a clear error pointing the user to set it (never a bad recipe).
 
 ## Canonical Ingredient Registry
 

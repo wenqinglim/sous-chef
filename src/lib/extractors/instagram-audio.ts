@@ -89,12 +89,15 @@ export const CDN_ANY_RE =
   /https:\/\/[a-z0-9][\w.-]*(?:\.cdninstagram\.com|\.fbcdn\.net)\/[^\s"'<>]{10,120}/gi;
 
 /**
- * Recursively walk a parsed Instagram API JSON response (`?__a=1&__d=dis`) looking
- * for a `video_url` field pointing at a CDN URL. Returns the first one found, or null.
+ * Recursively walk a parsed Instagram API/JSON response looking for a video CDN
+ * URL. Returns the first one found, or null.
  *
- * Instagram's `?__a=1` endpoint wraps the post data in a deeply nested structure
- * (GraphQL edges, media nodes) that changes shape between API versions — walking the
- * whole tree is more robust than trying to hard-code a path.
+ * Handles the shapes Instagram uses across endpoints:
+ *   - `video_url` (web GraphQL `shortcode_media`)
+ *   - `video_versions: [{ url }]` (authenticated `/api/v1/media/.../info/`)
+ *   - `playable_url` (some clip nodes)
+ * The post data is deeply nested and changes shape between API versions, so we
+ * walk the whole tree rather than hard-coding a path.
  */
 export function extractVideoUrlFromApiJson(json: unknown): string | null {
   if (!json || typeof json !== "object") return null;
@@ -106,9 +109,27 @@ export function extractVideoUrlFromApiJson(json: unknown): string | null {
     return null;
   }
   const obj = json as Record<string, unknown>;
-  if (typeof obj.video_url === "string" && isInstagramCdnUrl(obj.video_url)) {
-    return obj.video_url;
+
+  // Direct CDN URL fields.
+  for (const key of ["video_url", "playable_url", "playable_url_quality_hd"]) {
+    const v = obj[key];
+    if (typeof v === "string" && isInstagramCdnUrl(v)) return v;
   }
+
+  // video_versions: [{ url, width, height }] — authenticated media info shape.
+  if (Array.isArray(obj.video_versions)) {
+    for (const ver of obj.video_versions) {
+      if (
+        ver &&
+        typeof ver === "object" &&
+        typeof (ver as Record<string, unknown>).url === "string" &&
+        isInstagramCdnUrl((ver as Record<string, unknown>).url as string)
+      ) {
+        return (ver as Record<string, unknown>).url as string;
+      }
+    }
+  }
+
   for (const v of Object.values(obj)) {
     const found = extractVideoUrlFromApiJson(v);
     if (found) return found;

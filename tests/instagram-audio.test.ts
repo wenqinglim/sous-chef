@@ -298,6 +298,29 @@ describe("extractVideoUrlFromApiJson", () => {
     expect(realExtractVideoUrlFromApiJson(data)).toBe(CDN_URL);
   });
 
+  test("finds url inside video_versions[] (authenticated media/info shape)", () => {
+    const data = {
+      items: [
+        {
+          video_versions: [
+            { type: 101, width: 720, url: CDN_URL },
+            { type: 102, width: 480, url: "https://other.cdninstagram.com/v/low.mp4" },
+          ],
+        },
+      ],
+    };
+    expect(realExtractVideoUrlFromApiJson(data)).toBe(CDN_URL);
+  });
+
+  test("finds playable_url when present", () => {
+    expect(realExtractVideoUrlFromApiJson({ clip: { playable_url: CDN_URL } })).toBe(CDN_URL);
+  });
+
+  test("ignores video_versions entries whose url is not a CDN URL", () => {
+    const data = { video_versions: [{ url: "https://example.com/not-cdn.mp4" }] };
+    expect(realExtractVideoUrlFromApiJson(data)).toBeNull();
+  });
+
   test("returns null when video_url is absent", () => {
     expect(realExtractVideoUrlFromApiJson({ title: "Garlic Pasta", caption: "yum" })).toBeNull();
   });
