@@ -273,7 +273,10 @@ export async function extractFromInstagramWithAudio(
 
   const videoUrl = extractVideoUrl(html);
   if (!videoUrl) {
-    if (captionResult?.recipe) return captionResult;
+    if (captionResult?.recipe) {
+      onStatus("No video URL found in page — saving what was extracted from the caption (instructions may be incomplete).");
+      return captionResult;
+    }
     return {
       recipe: null,
       error:
@@ -288,7 +291,10 @@ export async function extractFromInstagramWithAudio(
     timeoutMs: 30_000,
   });
   if (!videoBuffer) {
-    if (captionResult?.recipe) return captionResult;
+    if (captionResult?.recipe) {
+      onStatus("Video download failed — saving what was extracted from the caption (instructions may be incomplete).");
+      return captionResult;
+    }
     return {
       recipe: null,
       error:
@@ -300,7 +306,10 @@ export async function extractFromInstagramWithAudio(
   onStatus("Transcribing audio…");
   const transcript = await transcribeWithWhisper(videoBuffer);
   if (!transcript) {
-    if (captionResult?.recipe) return captionResult;
+    if (captionResult?.recipe) {
+      onStatus("Audio transcription failed — saving what was extracted from the caption (instructions may be incomplete).");
+      return captionResult;
+    }
     return {
       recipe: null,
       error:
@@ -310,7 +319,10 @@ export async function extractFromInstagramWithAudio(
   }
 
   if (!looksLikeRecipe(transcript)) {
-    if (captionResult?.recipe) return captionResult;
+    if (captionResult?.recipe) {
+      onStatus("Audio doesn't contain a recipe — saving what was extracted from the caption (instructions may be incomplete).");
+      return captionResult;
+    }
     return {
       recipe: null,
       error: "The audio transcript doesn't appear to contain a recipe.",
@@ -323,6 +335,9 @@ export async function extractFromInstagramWithAudio(
   if (audioResult.recipe) return audioResult;
 
   // Audio LLM failed — partial caption result is better than nothing.
-  if (captionResult?.recipe) return captionResult;
+  if (captionResult?.recipe) {
+    onStatus("Audio recipe extraction failed — saving what was extracted from the caption (instructions may be incomplete).");
+    return captionResult;
+  }
   return audioResult;
 }

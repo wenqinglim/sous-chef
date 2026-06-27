@@ -109,6 +109,45 @@ describe("extractVideoUrl", () => {
     );
   });
 
+  test("parses contentUrl from JSON-LD VideoObject", () => {
+    const html = `<html><head>
+      <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "VideoObject",
+        "name": "chef_demo on Instagram",
+        "description": "Recipe caption here",
+        "contentUrl": "https://scontent.cdninstagram.com/v/reel.mp4?params=123"
+      }
+      </script>
+    </head><body></body></html>`;
+    expect(realExtractVideoUrl(html)).toBe(
+      "https://scontent.cdninstagram.com/v/reel.mp4?params=123"
+    );
+  });
+
+  test("prefers og:video:secure_url over JSON-LD contentUrl", () => {
+    const html = `<html><head>
+      <meta property="og:video:secure_url" content="https://cdn.instagram.com/og-video.mp4" />
+      <script type="application/ld+json">
+      { "@type": "VideoObject", "contentUrl": "https://scontent.cdninstagram.com/jsonld-video.mp4" }
+      </script>
+    </head><body></body></html>`;
+    expect(realExtractVideoUrl(html)).toBe("https://cdn.instagram.com/og-video.mp4");
+  });
+
+  test("falls back to JSON-LD contentUrl when og:video is absent", () => {
+    const html = `<html><head>
+      <meta property="og:description" content="some caption" />
+      <script type="application/ld+json">
+      { "@type": "VideoObject", "contentUrl": "https://scontent.cdninstagram.com/v/reel.mp4" }
+      </script>
+    </head><body></body></html>`;
+    expect(realExtractVideoUrl(html)).toBe(
+      "https://scontent.cdninstagram.com/v/reel.mp4"
+    );
+  });
+
   test("returns null when no video meta tags are present", () => {
     const html = `<html><head>
       <meta property="og:description" content="some caption" />
@@ -118,6 +157,11 @@ describe("extractVideoUrl", () => {
 
   test("returns null for an empty page", () => {
     expect(realExtractVideoUrl("<html><body></body></html>")).toBeNull();
+  });
+
+  test("returns null for JSON-LD VideoObject without contentUrl", () => {
+    // The test fixture has a VideoObject with only name/description (no contentUrl).
+    expect(realExtractVideoUrl(recipeHtml)).toBeNull();
   });
 });
 
@@ -233,7 +277,7 @@ describe("extractFromInstagramWithAudio", () => {
     expect(statusMessages.some((m) => /incomplete/i.test(m))).toBe(true);
   });
 
-  test("caption has ingredients but no instructions + audio fails → partial caption result returned", async () => {
+  test("caption has ingredients but no instructions + audio fails → partial caption result returned with status", async () => {
     mockedExtractWithLlm.mockResolvedValueOnce({ recipe: mockRecipePartial });
     mockedExtractVideoUrl.mockReturnValue("https://cdn.instagram.com/reel.mp4");
     mockedBinaryFetch.mockResolvedValue(null); // download fails
@@ -244,6 +288,9 @@ describe("extractFromInstagramWithAudio", () => {
     // Returns partial caption result rather than an error.
     expect(result.recipe).toBe(mockRecipePartial);
     expect(mockedTranscribeWithWhisper).not.toHaveBeenCalled();
+    // A status message explains the degradation so the user isn't left wondering.
+    const statusMessages = onStatus.mock.calls.map((c) => c[0] as string);
+    expect(statusMessages.some((m) => /download failed|incomplete/i.test(m))).toBe(true);
   });
 
   test("no caption → audio path fires → recipe extracted from transcript", async () => {
