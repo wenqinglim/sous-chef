@@ -344,9 +344,11 @@ export async function extractFromInstagramWithAudio(
 
   onStatus("Transcribing audio…");
   const transcript = await transcribeWithWhisper(videoBuffer);
-  console.error(
-    `[IG] transcript: ${transcript ? `${transcript.length} chars, looksLikeRecipe=${looksLikeRecipe(transcript)}` : "null"}`
-  );
+  console.error(`[IG] transcript: ${transcript ? `${transcript.length} chars` : "null"}`);
+  if (transcript) {
+    // Preview so we can confirm Whisper heard recipe narration vs music/garbage.
+    console.error(`[IG] transcript preview: ${transcript.slice(0, 300)}`);
+  }
   if (!transcript) {
     if (captionResult?.recipe) {
       onStatus("Audio transcription failed — saving what was extracted from the caption (instructions may be incomplete).");
@@ -360,29 +362,39 @@ export async function extractFromInstagramWithAudio(
     };
   }
 
-  if (!looksLikeRecipe(transcript)) {
-    if (captionResult?.recipe) {
-      onStatus("Audio doesn't contain a recipe — saving what was extracted from the caption (instructions may be incomplete).");
-      return captionResult;
-    }
-    return {
-      recipe: null,
-      error: "The audio transcript doesn't appear to contain a recipe.",
-      kind: "no_recipe",
-    };
-  }
+  // No pre-gate on the transcript: `looksLikeRecipe` is tuned for written
+  // captions ("3 tbsp", "Method:") and wrongly rejects spoken narration ("add a
+  // couple tablespoons…"). We've already paid for download + transcription, so
+  // let the LLM decide and gate on its *output* instead (see audioUseful below).
+  // When the caption looked like a recipe, send it alongside the transcript so
+  // the LLM keeps the caption's precise ingredients and adds the spoken steps.
+  const llmInput =
+    captionIsRecipe && caption
+      ? `Recipe caption:\n${caption}\n\nVideo audio transcript (use for any cooking steps not in the caption):\n${transcript}`
+      : transcript;
 
   onStatus("Extracting recipe from audio transcript…");
-  const audioResult = await extractWithLlm(transcript, url);
+  const audioResult = await extractWithLlm(llmInput, url);
+  const ar = audioResult.recipe;
+  const audioUseful = !!ar && (ar.ingredients.length > 0 || ar.instructions.length > 0);
   console.error(
-    `[IG] audio LLM: recipe=${audioResult.recipe ? "yes" : "no"} instructions=${audioResult.recipe?.instructions.length ?? 0}`
+    `[IG] audio LLM: recipe=${ar ? "yes" : "no"} ingredients=${ar?.ingredients.length ?? 0} instructions=${ar?.instructions.length ?? 0} useful=${audioUseful}`
   );
-  if (audioResult.recipe) return audioResult;
+  if (audioUseful) return audioResult;
 
-  // Audio LLM failed — partial caption result is better than nothing.
+  // Audio yielded nothing usable — a partial caption recipe beats nothing.
   if (captionResult?.recipe) {
-    onStatus("Audio recipe extraction failed — saving what was extracted from the caption (instructions may be incomplete).");
+    onStatus("Couldn't extract a full recipe from the audio — saving what the caption contained (instructions may be incomplete).");
     return captionResult;
+  }
+  // LLM ran but found no recipe content (empty result) → no_recipe; otherwise
+  // propagate the LLM's extractor_error.
+  if (ar) {
+    return {
+      recipe: null,
+      error: "The reel's audio didn't contain a recipe.",
+      kind: "no_recipe",
+    };
   }
   return audioResult;
 }

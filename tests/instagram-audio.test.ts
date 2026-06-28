@@ -597,7 +597,9 @@ describe("extractFromInstagramWithAudio", () => {
     expect(mockedExtractWithLlm).not.toHaveBeenCalled();
   });
 
-  test("audio path: transcript not a recipe, no caption result → returns no_recipe error", async () => {
+  test("audio path: LLM finds no recipe in transcript, no caption → no_recipe (LLM still called)", async () => {
+    // The transcript gate is gone: even a non-recipe transcript reaches the LLM,
+    // which returns an empty recipe → we classify that as no_recipe.
     mockedFetchInstagramMedia.mockResolvedValue({
       caption: null,
       videoUrl: "https://cdn.instagram.com/reel.mp4",
@@ -606,13 +608,57 @@ describe("extractFromInstagramWithAudio", () => {
     mockedTranscribeWithWhisper.mockResolvedValue(
       "Hey everyone, welcome back to my travel vlog! Today we're in Tokyo."
     );
+    mockedExtractWithLlm.mockResolvedValue({
+      recipe: { ...mockRecipeComplete, ingredients: [], instructions: [] },
+    });
 
     const onStatus = jest.fn();
     const result = await extractFromInstagramWithAudio(REEL_URL, onStatus);
 
     expect(result.recipe).toBeNull();
     expect(result.kind).toBe("no_recipe");
-    expect(mockedExtractWithLlm).not.toHaveBeenCalled();
+    expect(mockedExtractWithLlm).toHaveBeenCalledTimes(1);
+  });
+
+  test("audio path: partial caption + transcript → both are merged into the LLM input", async () => {
+    mockedFetchInstagramMedia.mockResolvedValue({
+      caption: RECIPE_CAPTION,
+      videoUrl: "https://cdn.instagram.com/reel.mp4",
+    });
+    const transcript = "First boil the noodles, then melt the butter and toss everything together.";
+    mockedExtractWithLlm
+      .mockResolvedValueOnce({ recipe: mockRecipePartial }) // caption call (no instructions)
+      .mockResolvedValueOnce({ recipe: mockRecipeComplete }); // merged caption+transcript call
+    mockedBinaryFetch.mockResolvedValue(Buffer.from("fake video"));
+    mockedTranscribeWithWhisper.mockResolvedValue(transcript);
+
+    const onStatus = jest.fn();
+    const result = await extractFromInstagramWithAudio(REEL_URL, onStatus);
+
+    expect(result.recipe).toBe(mockRecipeComplete);
+    // The 2nd (audio) LLM call sees BOTH the caption and the transcript.
+    const audioInput = mockedExtractWithLlm.mock.calls[1][0];
+    expect(audioInput).toContain(RECIPE_CAPTION);
+    expect(audioInput).toContain(transcript);
+  });
+
+  test("audio path: LLM returns empty recipe but a partial caption exists → returns the partial", async () => {
+    mockedFetchInstagramMedia.mockResolvedValue({
+      caption: RECIPE_CAPTION,
+      videoUrl: "https://cdn.instagram.com/reel.mp4",
+    });
+    mockedExtractWithLlm
+      .mockResolvedValueOnce({ recipe: mockRecipePartial }) // caption call
+      .mockResolvedValueOnce({
+        recipe: { ...mockRecipeComplete, ingredients: [], instructions: [] },
+      }); // audio call yields nothing usable
+    mockedBinaryFetch.mockResolvedValue(Buffer.from("fake video"));
+    mockedTranscribeWithWhisper.mockResolvedValue("um, anyway, like and subscribe");
+
+    const onStatus = jest.fn();
+    const result = await extractFromInstagramWithAudio(REEL_URL, onStatus);
+
+    expect(result.recipe).toBe(mockRecipePartial);
   });
 
   test("audio path: LLM fails, no caption result → error propagated", async () => {
