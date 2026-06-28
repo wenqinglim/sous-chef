@@ -134,3 +134,72 @@ describe("safeFetch — redirect validation", () => {
     expect(result.text).toContain("recipe");
   });
 });
+
+// ─── safeFetch request headers (anti-bot fingerprint) ─────────────────────────
+
+describe("safeFetch — request headers", () => {
+  const realFetch = global.fetch;
+
+  function mock200() {
+    const fetchMock = jest.fn().mockResolvedValue({
+      status: 200,
+      ok: true,
+      headers: new Map(),
+      text: async () => "<html>ok</html>",
+      body: null,
+    }) as unknown as typeof fetch;
+    global.fetch = fetchMock;
+    return fetchMock;
+  }
+
+  function sentHeaders(fetchMock: jest.Mock): Record<string, string> {
+    return (fetchMock.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
+  }
+
+  beforeEach(() => {
+    mockLookup.mockResolvedValue([{ address: "93.184.216.34", family: 4 }] as never);
+  });
+
+  afterEach(() => {
+    global.fetch = realFetch;
+    jest.clearAllMocks();
+  });
+
+  test("default path sends a full Chrome browser fingerprint", async () => {
+    const fetchMock = mock200() as unknown as jest.Mock;
+    await safeFetch("http://recipe.example.com/r");
+
+    const headers = sentHeaders(fetchMock);
+    expect(headers["User-Agent"]).toContain("Chrome/131");
+    expect(headers["Sec-Fetch-Mode"]).toBe("navigate");
+    expect(headers["Sec-Ch-Ua"]).toContain("Google Chrome");
+    expect(headers["Upgrade-Insecure-Requests"]).toBe("1");
+    expect(headers["Accept"]).toContain("text/html");
+  });
+
+  test("custom userAgent opts out of the browser fingerprint", async () => {
+    const fetchMock = mock200() as unknown as jest.Mock;
+    await safeFetch("http://recipe.example.com/r", {
+      userAgent: "facebookexternalhit/1.1",
+    });
+
+    const headers = sentHeaders(fetchMock);
+    expect(headers["User-Agent"]).toBe("facebookexternalhit/1.1");
+    expect(headers["Sec-Fetch-Mode"]).toBeUndefined();
+    expect(headers["Sec-Ch-Ua"]).toBeUndefined();
+    expect(headers["Upgrade-Insecure-Requests"]).toBeUndefined();
+  });
+
+  test("caller-supplied headers override the browser defaults", async () => {
+    const fetchMock = mock200() as unknown as jest.Mock;
+    await safeFetch("http://recipe.example.com/r", {
+      headers: { Accept: "application/json", Cookie: "sessionid=abc" },
+    });
+
+    const headers = sentHeaders(fetchMock);
+    expect(headers["Accept"]).toBe("application/json");
+    expect(headers["Cookie"]).toBe("sessionid=abc");
+    // still on the default-UA path, so the rest of the fingerprint remains
+    expect(headers["Sec-Fetch-Mode"]).toBe("navigate");
+  });
+});

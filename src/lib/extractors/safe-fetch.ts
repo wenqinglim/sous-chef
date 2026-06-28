@@ -33,7 +33,31 @@ const MAX_REDIRECTS = 5;
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5 MB
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+/**
+ * Headers that model a real Chrome top-level navigation. Many recipe sites sit
+ * behind Cloudflare-style bot mitigation that returns 403 to requests missing a
+ * complete, consistent browser fingerprint (client hints + fetch metadata). These
+ * are applied only on the default-UA path; callers that supply their own
+ * `userAgent` (e.g. the Instagram `facebookexternalhit` crawler) opt out so their
+ * fingerprint stays internally consistent. The Sec-Ch-Ua version matches
+ * DEFAULT_USER_AGENT above. Accept-Encoding is intentionally omitted so the
+ * runtime negotiates compression and returns a decoded body.
+ */
+const DEFAULT_BROWSER_HEADERS: Record<string, string> = {
+  Accept:
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Upgrade-Insecure-Requests": "1",
+  "Sec-Fetch-Dest": "document",
+  "Sec-Fetch-Mode": "navigate",
+  "Sec-Fetch-Site": "none",
+  "Sec-Fetch-User": "?1",
+  "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+  "Sec-Ch-Ua-Mobile": "?0",
+  "Sec-Ch-Ua-Platform": '"macOS"',
+};
 
 /** Hostnames that must never be resolved/fetched, regardless of DNS. */
 const BLOCKED_HOST_SUFFIXES = [".local", ".internal", ".localhost"];
@@ -178,8 +202,9 @@ export async function safeFetch(
     const response = await fetch(validated.toString(), {
       headers: {
         "User-Agent": userAgent,
-        Accept: "text/html,application/xhtml+xml",
-        "Accept-Language": "en-US,en;q=0.9",
+        // Full browser fingerprint only on the default-UA path; a caller-supplied
+        // userAgent (e.g. the Instagram crawler) opts out to stay consistent.
+        ...(opts.userAgent ? {} : DEFAULT_BROWSER_HEADERS),
         // Caller-supplied headers (e.g. Cookie, X-IG-App-ID) override the defaults.
         ...opts.headers,
       },
