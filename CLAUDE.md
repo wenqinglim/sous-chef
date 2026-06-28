@@ -43,7 +43,7 @@ APIFY_TOKEN=apify_api_...       # Apify scraper — fetches Instagram reel capti
 npm install
 npm run db:deploy  # apply Prisma migrations (once per database)
 npm run dev        # http://localhost:3000
-npm test           # run all tests (387 passing; no DB needed — Prisma is mocked)
+npm test           # run all tests (369 passing; no DB needed — Prisma is mocked)
 npm run build      # production build: prisma generate → migrate deploy → next build
 ```
 
@@ -55,11 +55,11 @@ npm run build      # production build: prisma generate → migrate deploy → ne
 
 ## Test Coverage
 
-387 tests across 12 suites:
+369 tests across 12 suites:
 - `tests/units.test.ts` — unit conversions + ingredient text parser, incl. mixed/unicode ranges
 - `tests/normalization.test.ts` — registry lookup, alias matching, soy sauce disambiguation, messy-name robustness
 - `tests/extraction.test.ts` — schema.org extraction for all 4 target sites + `parseInstructions` for every JSON-LD instruction shape
-- `tests/instagram.test.ts` — Instagram URL detection, caption extraction (JSON-LD + og:description), recipe heuristic gate, and the caption-only path (LLM mocked)
+- `tests/instagram.test.ts` — Instagram URL detection (`isInstagramUrl`) and the recipe heuristic gate (`looksLikeRecipe`)
 - `tests/instagram-scraper.test.ts` — `fetchInstagramMedia` request shape + caption/videoUrl parsing + degradation (unconfigured token, empty/non-array/non-ok responses)
 - `tests/instagram-audio.test.ts` — host-validated `binaryFetch` (CDN-only, size cap, diagnostics), Whisper (mocked), and `extractFromInstagramWithAudio` orchestration (caption→audio fallback, caption+transcript merge, graceful degradation)
 - `tests/extract-route.test.ts` — `/api/extract` pasted-text branch: direct LLM extraction, url passthrough/synthesis, no fetching
@@ -206,9 +206,7 @@ schema.org → body-text path. The assumption is that the **reel caption contain
 recipe**. Flow: `fetchInstagramMedia(url)` (scraper → `{ caption, videoUrl }`) →
 `looksLikeRecipe(caption)` heuristic gate (recipe keyword OR ≥3 quantity+unit matches; rejects
 non-recipe captions before spending an LLM call) → `extractWithLlm(caption, url)`. `cuisine_source`
-is `unknown`. (`extractInstagramCaption` — JSON-LD/`og:description` parsing with the
-"N likes, M comments - user on date:" preamble stripped — is retained for the caption-only
-`extractFromInstagram` path and tests.)
+is `unknown`.
 
 **Fetching goes through a scraper, not our IP.** Instagram login-walls *both* the caption and the
 video for requests from datacenter IPs (Vercel's), and a personal `sessionid` cookie from such an

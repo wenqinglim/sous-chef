@@ -14,7 +14,6 @@
  * caption-paste path — rather than a bad recipe.
  */
 
-import * as cheerio from "cheerio";
 import { extractWithLlm, type LlmExtractionResult } from "@/lib/extractors/llm-fallback";
 import {
   binaryFetch,
@@ -32,17 +31,6 @@ const INSTAGRAM_HOSTS = new Set([
   "www.instagr.am",
 ]);
 
-/** Extract the reel/post shortcode from an Instagram URL (`/reel/X/`, `/reels/X/`, `/p/X/`). */
-export function instagramShortcode(url: string): string | null {
-  try {
-    return (
-      new URL(url).pathname.match(/\/(?:reels?|p|tv)\/([^/?#]+)/)?.[1] ?? null
-    );
-  } catch {
-    return null;
-  }
-}
-
 /** True when `url` points at Instagram, so the route uses the caption path. */
 export function isInstagramUrl(url: string): boolean {
   try {
@@ -50,107 +38,6 @@ export function isInstagramUrl(url: string): boolean {
   } catch {
     return false;
   }
-}
-
-// ─── Caption extraction ─────────────────────────────────────────────────────
-
-/**
- * Instagram's og:description / meta description wraps the caption in an
- * attribution preamble. Strip that prefix and any surrounding quotes.
- *
- * Formats seen in the wild (the comment count, and sometimes the counts
- * entirely, can be absent):
- *   "1,234 likes, 56 comments - user on January 1, 2024: "<caption>""
- *   "1,234 likes - user on January 1, 2024: "<caption>""
- *   "user on Instagram: "<caption>""
- */
-function stripCaptionPreamble(raw: string): string {
-  let s = raw.trim();
-  // Engagement-count lead-in: anchored on a literal "likes" so a real caption
-  // ("Garlic Noodles: …") is never touched. The lazy run swallows an optional
-  // ", N comments - user on <date>" tail up to the first colon.
-  s = s.replace(/^[\d,.\sKMB]*likes?\b[^:\n]*?:\s*/i, "");
-  // Bare "<user> on Instagram:" attribution with no engagement counts.
-  s = s.replace(/^[^:\n]*?\bon Instagram\b\s*:\s*/i, "");
-  // Unwrap a single layer of surrounding quotes (straight or curly).
-  s = s.replace(/^["“”']+/, "").replace(/["“”']+$/, "");
-  return s.trim();
-}
-
-/**
- * Walk a parsed JSON-LD value for the post caption. Prefers an explicit
- * `caption` field, then `articleBody`, then `description` — only falling back to
- * `description` last avoids picking up boilerplate ("See photos and videos
- * from …") that may be longer than the real caption. Length breaks ties within
- * a single field.
- */
-function findCaptionInJsonLd(value: unknown): string | null {
-  const longest: Record<"caption" | "articleBody" | "description", string | null> = {
-    caption: null,
-    articleBody: null,
-    description: null,
-  };
-  const consider = (field: keyof typeof longest, s: unknown) => {
-    if (typeof s === "string") {
-      const cur = longest[field];
-      if (cur === null || s.length > cur.length) longest[field] = s;
-    }
-  };
-  const walk = (node: unknown) => {
-    if (Array.isArray(node)) {
-      node.forEach(walk);
-    } else if (node && typeof node === "object") {
-      const obj = node as Record<string, unknown>;
-      consider("caption", obj.caption);
-      consider("articleBody", obj.articleBody);
-      consider("description", obj.description);
-      Object.values(obj).forEach(walk);
-    }
-  };
-  walk(value);
-  return longest.caption ?? longest.articleBody ?? longest.description;
-}
-
-/**
- * Pull the reel caption out of a fetched Instagram page.
- *
- * Prefers a substantial JSON-LD caption, then falls back to the og:description
- * / meta description (with its engagement preamble stripped). Returns null when
- * nothing usable is recoverable (login wall, empty page).
- */
-export function extractInstagramCaption(html: string): string | null {
-  const $ = cheerio.load(html);
-
-  // 1. JSON-LD — may carry the full, untruncated caption.
-  let jsonLdBest: string | null = null;
-  $('script[type="application/ld+json"]').each((_, el) => {
-    const content = $(el).html();
-    if (!content) return;
-    try {
-      const found = findCaptionInJsonLd(JSON.parse(content));
-      if (found && (jsonLdBest === null || found.length > jsonLdBest.length)) {
-        jsonLdBest = found;
-      }
-    } catch {
-      // ignore malformed JSON-LD blocks
-    }
-  });
-  if (jsonLdBest) {
-    const cleaned = stripCaptionPreamble(jsonLdBest);
-    if (cleaned) return cleaned;
-  }
-
-  // 2. og:description / meta description fallback.
-  const meta =
-    $('meta[property="og:description"]').attr("content") ??
-    $('meta[name="description"]').attr("content") ??
-    null;
-  if (meta) {
-    const cleaned = stripCaptionPreamble(meta);
-    if (cleaned) return cleaned;
-  }
-
-  return null;
 }
 
 // ─── Recipe heuristic ────────────────────────────────────────────────────────
@@ -187,40 +74,6 @@ export function looksLikeRecipe(caption: string): boolean {
 }
 
 // ─── Orchestration ───────────────────────────────────────────────────────────
-
-/**
- * Extract a recipe from a fetched Instagram reel page.
- *
- * caption parse → recipe heuristic → LLM extraction. Returns the same shape as
- * the website LLM fallback so the route handles both identically.
- */
-export async function extractFromInstagram(
-  html: string,
-  url: string
-): Promise<LlmExtractionResult> {
-  const caption = extractInstagramCaption(html);
-  if (!caption) {
-    // Couldn't get usable content out of the page (login wall / private /
-    // removed) — that's an upstream-fetch problem, not "this isn't a recipe".
-    return {
-      recipe: null,
-      error:
-        "Couldn't read this Instagram reel's caption. It may be private, removed, or require login.",
-      kind: "extractor_error",
-    };
-  }
-
-  if (!looksLikeRecipe(caption)) {
-    return {
-      recipe: null,
-      error:
-        "This Instagram caption doesn't look like a recipe. Make sure the reel's caption includes the ingredients and steps.",
-      kind: "no_recipe",
-    };
-  }
-
-  return extractWithLlm(caption, url);
-}
 
 /**
  * Extract a recipe from an Instagram reel, with audio fallback.
