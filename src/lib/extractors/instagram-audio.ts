@@ -232,6 +232,11 @@ export async function binaryFetch(
       signal: controller.signal,
       headers: CDN_FETCH_HEADERS,
     });
+    // Surface what the CDN told us before we start streaming — a Content-Length
+    // over the cap is the most common (and otherwise invisible) failure cause.
+    console.error(
+      `[IG] binaryFetch: status=${res.status} content-length=${res.headers?.get?.("content-length") ?? "?"}`
+    );
     if (!res.ok || !res.body) {
       console.error(`binaryFetch: HTTP ${res.status} for ${url}`);
       return null;
@@ -245,13 +250,22 @@ export async function binaryFetch(
       if (done) break;
       total += value.length;
       if (total > opts.maxBytes) {
+        console.error(
+          `[IG] binaryFetch: exceeds cap (${total} > ${opts.maxBytes} bytes) — aborting download`
+        );
         reader.cancel();
         return null;
       }
       chunks.push(value);
     }
+    console.error(`[IG] binaryFetch: downloaded ${total} bytes`);
     return Buffer.concat(chunks);
-  } catch {
+  } catch (err) {
+    // AbortError = our timeout fired; TypeError/ECONNRESET = network/TLS. Either
+    // way the previous code returned null with no trace.
+    console.error(
+      `[IG] binaryFetch threw: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`
+    );
     return null;
   } finally {
     clearTimeout(timer);

@@ -399,26 +399,34 @@ describe("binaryFetch", () => {
     spy.mockRestore();
   });
 
-  test("returns null when data exceeds maxBytes", async () => {
+  test("returns null and logs a diagnostic when data exceeds maxBytes", async () => {
     const data = new Uint8Array(100);
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       body: makeStream(data),
     });
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {});
     const result = await realBinaryFetch("https://cdn.example.com/reel.mp4", {
       maxBytes: 50,
       timeoutMs: 5000,
     });
     expect(result).toBeNull();
+    // Previously silent — now the size cap is visible in the logs.
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("exceeds cap"));
+    spy.mockRestore();
   });
 
-  test("returns null on fetch error", async () => {
+  test("returns null and logs a diagnostic on fetch error", async () => {
     global.fetch = jest.fn().mockRejectedValue(new Error("network error"));
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {});
     const result = await realBinaryFetch("https://cdn.example.com/reel.mp4", {
       maxBytes: 1024,
       timeoutMs: 5000,
     });
     expect(result).toBeNull();
+    // Previously swallowed by `catch {}` — now the error reason is logged.
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("binaryFetch threw"));
+    spy.mockRestore();
   });
 });
 

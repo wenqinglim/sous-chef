@@ -321,10 +321,14 @@ export async function extractFromInstagramWithAudio(
   }
 
   onStatus("Downloading video…");
+  console.error(`[IG] downloading video (cap=${MAX_VIDEO_BYTES} bytes, timeout=30s)`);
   const videoBuffer = await binaryFetch(videoUrl, {
     maxBytes: MAX_VIDEO_BYTES,
     timeoutMs: 30_000,
   });
+  console.error(
+    `[IG] video download: ${videoBuffer ? `${videoBuffer.length} bytes` : "FAILED (null)"}`
+  );
   if (!videoBuffer) {
     if (captionResult?.recipe) {
       onStatus("Video download failed — saving what was extracted from the caption (instructions may be incomplete).");
@@ -340,6 +344,9 @@ export async function extractFromInstagramWithAudio(
 
   onStatus("Transcribing audio…");
   const transcript = await transcribeWithWhisper(videoBuffer);
+  console.error(
+    `[IG] transcript: ${transcript ? `${transcript.length} chars, looksLikeRecipe=${looksLikeRecipe(transcript)}` : "null"}`
+  );
   if (!transcript) {
     if (captionResult?.recipe) {
       onStatus("Audio transcription failed — saving what was extracted from the caption (instructions may be incomplete).");
@@ -367,6 +374,9 @@ export async function extractFromInstagramWithAudio(
 
   onStatus("Extracting recipe from audio transcript…");
   const audioResult = await extractWithLlm(transcript, url);
+  console.error(
+    `[IG] audio LLM: recipe=${audioResult.recipe ? "yes" : "no"} instructions=${audioResult.recipe?.instructions.length ?? 0}`
+  );
   if (audioResult.recipe) return audioResult;
 
   // Audio LLM failed — partial caption result is better than nothing.
