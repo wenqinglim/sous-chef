@@ -1,28 +1,20 @@
 /**
  * Audio-based recipe extraction from Instagram reels.
  *
- * When the reel caption has no recipe, we attempt to transcribe the video
- * audio using Groq's hosted Whisper model (whisper-large-v3) and then run
- * the transcript through the existing LLM recipe extractor.
+ * When the reel caption has no recipe, we transcribe the video audio using
+ * Groq's hosted Whisper model (whisper-large-v3) and run the transcript through
+ * the existing LLM recipe extractor.
  *
- * Video URL discovery (in priority order):
- *   1. og:video:secure_url / og:video — only when pointing at the CDN, not
- *      Instagram's own embed page (which is HTML, not video).
- *   2. JSON-LD VideoObject.contentUrl.
- *   3. Regex scan of the raw HTML for CDN MP4 URLs embedded in <script> JSON
- *      data (e.g. window._sharedData, window.__additionalDataLoaded).
- *
+ * The reel's video CDN URL is supplied by the scraper provider
+ * (`instagram-scraper.ts`); this module just downloads that URL (`binaryFetch`,
+ * host-validated to an Instagram CDN) and transcribes it (`transcribeWithWhisper`).
  * Transcription requires GROQ_API_KEY.
  */
 
-import * as cheerio from "cheerio";
 import OpenAI, { toFile } from "openai";
 
 /** Maximum video size to download: just under Groq Whisper's 25 MB file limit. */
 export const MAX_VIDEO_BYTES = 24 * 1024 * 1024;
-
-/** Timeout for the video binary download. */
-const VIDEO_FETCH_TIMEOUT_MS = 30_000;
 
 /**
  * Headers for CDN video downloads. Matches the UA used to fetch the reel page
@@ -36,10 +28,9 @@ const CDN_FETCH_HEADERS = {
 };
 
 /**
- * True if `url` points at an Instagram CDN (scontent*.cdninstagram.com,
- * video*.cdninstagram.com, *.fbcdn.net) rather than an Instagram page.
- * og:video on reels typically contains the HTML embed URL
- * (`/reel/XXX/embed/captioned/`), which is useless for audio extraction.
+ * True if `url` points at an Instagram CDN host (`*.cdninstagram.com`,
+ * `*.fbcdn.net`). Used to host-validate the scraper-supplied video URL before
+ * downloading it (cheap SSRF guard against a buggy/compromised scraper response).
  */
 function isInstagramCdnUrl(url: string): boolean {
   try {
@@ -54,177 +45,24 @@ function isInstagramCdnUrl(url: string): boolean {
 }
 
 /**
- * Walk a parsed JSON-LD value looking for a VideoObject.contentUrl (the CDN
- * URL of the actual video file). Returns the first CDN URL found, or null.
- */
-function findVideoUrlInJsonLd(value: unknown): string | null {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = findVideoUrlInJsonLd(item);
-      if (found) return found;
-    }
-  } else if (value && typeof value === "object") {
-    const obj = value as Record<string, unknown>;
-    if (typeof obj.contentUrl === "string" && isInstagramCdnUrl(obj.contentUrl)) {
-      return obj.contentUrl;
-    }
-    for (const v of Object.values(obj)) {
-      const found = findVideoUrlInJsonLd(v);
-      if (found) return found;
-    }
-  }
-  return null;
-}
-
-// Instagram CDN video URLs. Requires .mp4 to avoid matching image thumbnail
-// URLs (t51.*.jpg) that share the same CDN hostname.
-// The /v/ path prefix is NOT required here — fbcdn.net and newer CDN deployments
-// also use /o1/, /p/, and other path prefixes for video. Keeping only the CDN
-// hostname + .mp4 extension is sufficient to avoid false positives.
-const CDN_VIDEO_RE =
-  /https:\/\/[a-z0-9][\w.-]*(?:\.cdninstagram\.com|\.fbcdn\.net)\/[^\s"'<>]*?\.mp4[^\s"'<>]*/gi;
-
-// Looser scan for ANY CDN URL (no extension filter) — used only for debug logging.
-export const CDN_ANY_RE =
-  /https:\/\/[a-z0-9][\w.-]*(?:\.cdninstagram\.com|\.fbcdn\.net)\/[^\s"'<>]{10,120}/gi;
-
-/**
- * Recursively walk a parsed Instagram API/JSON response looking for a video CDN
- * URL. Returns the first one found, or null.
+ * Download a video from an Instagram CDN URL as a binary Buffer.
  *
- * Handles the shapes Instagram uses across endpoints:
- *   - `video_url` (web GraphQL `shortcode_media`)
- *   - `video_versions: [{ url }]` (authenticated `/api/v1/media/.../info/`)
- *   - `playable_url` (some clip nodes)
- * The post data is deeply nested and changes shape between API versions, so we
- * walk the whole tree rather than hard-coding a path.
- */
-export function extractVideoUrlFromApiJson(json: unknown): string | null {
-  if (!json || typeof json !== "object") return null;
-  if (Array.isArray(json)) {
-    for (const item of json) {
-      const found = extractVideoUrlFromApiJson(item);
-      if (found) return found;
-    }
-    return null;
-  }
-  const obj = json as Record<string, unknown>;
-
-  // Direct CDN URL fields.
-  for (const key of ["video_url", "playable_url", "playable_url_quality_hd"]) {
-    const v = obj[key];
-    if (typeof v === "string" && isInstagramCdnUrl(v)) return v;
-  }
-
-  // video_versions: [{ url, width, height }] — authenticated media info shape.
-  if (Array.isArray(obj.video_versions)) {
-    for (const ver of obj.video_versions) {
-      if (
-        ver &&
-        typeof ver === "object" &&
-        typeof (ver as Record<string, unknown>).url === "string" &&
-        isInstagramCdnUrl((ver as Record<string, unknown>).url as string)
-      ) {
-        return (ver as Record<string, unknown>).url as string;
-      }
-    }
-  }
-
-  for (const v of Object.values(obj)) {
-    const found = extractVideoUrlFromApiJson(v);
-    if (found) return found;
-  }
-  return null;
-}
-
-/**
- * Parse the reel's video CDN URL from the fetched page.
+ * The URL comes from the third-party scraper API (not user input, but not our
+ * own fetched HTML either), so we host-validate it to an Instagram CDN before
+ * fetching — a cheap SSRF guard against a buggy/compromised scraper response
+ * pointing this at an internal address — and bypass safeFetch for the binary
+ * stream. A byte cap and timeout are still enforced.
  *
- * Checks in order:
- *   1. og:video:secure_url / og:video (only CDN URLs — skips embed pages).
- *   2. JSON-LD VideoObject.contentUrl.
- *   3. Regex scan of the raw HTML for CDN URLs in <script> JSON data.
- */
-export function extractVideoUrl(html: string): string | null {
-  const $ = cheerio.load(html);
-
-  // 1. og:video meta tags — only use if they point to the CDN, not an embed page.
-  // Instagram's og:video often contains `/reel/XXX/embed/captioned/` (HTML), not MP4.
-  for (const prop of ["og:video:secure_url", "og:video"]) {
-    const val = $(`meta[property="${prop}"]`).attr("content");
-    if (val && isInstagramCdnUrl(val)) return val;
-  }
-
-  // 2. JSON-LD VideoObject.contentUrl.
-  let jsonLdVideo: string | null = null;
-  $('script[type="application/ld+json"]').each((_, el) => {
-    if (jsonLdVideo) return;
-    const content = $(el).html();
-    if (!content) return;
-    try {
-      const found = findVideoUrlInJsonLd(JSON.parse(content));
-      if (found) jsonLdVideo = found;
-    } catch {
-      // ignore malformed JSON-LD
-    }
-  });
-  if (jsonLdVideo) return jsonLdVideo;
-
-  // 3. <video> / <source> tags — the embed page renders an actual video player
-  //    whose src points directly at the CDN.
-  for (const attr of ["src", "data-src", "data-video-src"]) {
-    for (const tag of ["video", "source"]) {
-      const val = $(`${tag}[${attr}]`).first().attr(attr);
-      if (val && isInstagramCdnUrl(val)) return val;
-    }
-  }
-
-  // 4. Regex scan for CDN MP4 URLs embedded anywhere in the page.
-  // Instagram's crawler/embed HTML includes the video CDN URL inside <script>
-  // tags as JSON data (contextJSON, window._sharedData, VideoObject, etc.).
-  const decoded = unescapeEmbedded(html);
-
-  CDN_VIDEO_RE.lastIndex = 0;
-  return decoded.match(CDN_VIDEO_RE)?.[0] ?? null;
-}
-
-/**
- * Unescape JSON/HTML escape sequences that hide CDN URLs in Instagram's HTML.
- *
- * Instagram's embed page stores media data in a `contextJSON` blob: a JSON
- * string nested inside another JSON string, so slashes can be escaped two or
- * three levels deep (`https:\\\/\\\/scontent…`). A single decode pass leaves
- * stray backslashes in the host that break the CDN regex, so we apply the
- * substitutions repeatedly until the string stops changing (capped to avoid a
- * pathological loop).
- */
-export function unescapeEmbedded(input: string): string {
-  let s = input;
-  for (let i = 0; i < 5; i++) {
-    const next = s
-      .replace(/\\u002[Ff]/g, "/") // / → /
-      .replace(/\\u0026/g, "&") //    & → &
-      .replace(/\\\//g, "/") //        \/ → /
-      .replace(/&amp;/g, "&"); //      &amp; → &
-    if (next === s) break;
-    s = next;
-  }
-  return s;
-}
-
-/**
- * Download a video from a CDN URL as a binary Buffer.
- *
- * This intentionally bypasses safeFetch: the URL comes from the Instagram
- * page we already fetched (not from user input), so SSRF risk is low. We
- * still enforce a byte cap and a timeout.
- *
- * Returns null on any error (network, oversize, timeout).
+ * Returns null on any error (non-CDN host, network, oversize, timeout).
  */
 export async function binaryFetch(
   url: string,
   opts: { maxBytes: number; timeoutMs: number }
 ): Promise<Buffer | null> {
+  if (!isInstagramCdnUrl(url)) {
+    console.error(`[IG] binaryFetch: refusing non-CDN host: ${url}`);
+    return null;
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
   try {
@@ -253,7 +91,7 @@ export async function binaryFetch(
         console.error(
           `[IG] binaryFetch: exceeds cap (${total} > ${opts.maxBytes} bytes) — aborting download`
         );
-        reader.cancel();
+        await reader.cancel();
         return null;
       }
       chunks.push(value);

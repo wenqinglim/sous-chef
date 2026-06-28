@@ -1,13 +1,9 @@
 /**
  * Tests for Instagram audio extraction:
- *   - extractVideoUrl (og:video parsing)
- *   - binaryFetch (binary download with size cap)
+ *   - binaryFetch (CDN host-validated binary download with size cap)
  *   - transcribeWithWhisper (Groq Whisper transcription, mocked)
  *   - extractFromInstagramWithAudio orchestration
  */
-
-import * as fs from "fs";
-import * as path from "path";
 
 // Mock the LLM extractor so orchestration tests never hit Claude.
 jest.mock("@/lib/extractors/llm-fallback", () => ({
@@ -15,21 +11,13 @@ jest.mock("@/lib/extractors/llm-fallback", () => ({
 }));
 
 // Mock the audio helpers so orchestration tests control each step. The video
-// URL + caption now come from the scraper provider (mocked below), so the
-// orchestration only needs binaryFetch + transcribeWithWhisper from here. The
-// video-discovery helpers stay exported (and are unit-tested via requireActual).
-jest.mock("@/lib/extractors/instagram-audio", () => {
-  const actual = jest.requireActual("@/lib/extractors/instagram-audio");
-  return {
-    extractVideoUrl: actual.extractVideoUrl,
-    extractVideoUrlFromApiJson: actual.extractVideoUrlFromApiJson,
-    CDN_ANY_RE: actual.CDN_ANY_RE,
-    unescapeEmbedded: actual.unescapeEmbedded,
-    binaryFetch: jest.fn(),
-    transcribeWithWhisper: jest.fn(),
-    MAX_VIDEO_BYTES: 24 * 1024 * 1024,
-  };
-});
+// URL + caption come from the scraper provider (mocked below), so the
+// orchestration only needs binaryFetch + transcribeWithWhisper from here.
+jest.mock("@/lib/extractors/instagram-audio", () => ({
+  binaryFetch: jest.fn(),
+  transcribeWithWhisper: jest.fn(),
+  MAX_VIDEO_BYTES: 24 * 1024 * 1024,
+}));
 
 // Mock the scraper provider — orchestration tests supply caption + videoUrl.
 jest.mock("@/lib/extractors/instagram-scraper", () => ({
@@ -56,12 +44,6 @@ const mockedBinaryFetch = binaryFetch as jest.MockedFunction<typeof binaryFetch>
 const mockedTranscribeWithWhisper = transcribeWithWhisper as jest.MockedFunction<
   typeof transcribeWithWhisper
 >;
-
-function loadFixture(name: string): string {
-  return fs.readFileSync(path.join(__dirname, "fixtures", name), "utf-8");
-}
-
-const recipeHtml = loadFixture("instagram-recipe.html");
 
 const REEL_URL = "https://www.instagram.com/reel/ABC123/";
 
@@ -103,255 +85,6 @@ beforeEach(() => {
   jest.resetAllMocks();
 });
 
-// ─── extractVideoUrl ──────────────────────────────────────────────────────────
-
-// Import the real implementation directly for unit tests.
-// We need to bypass the mock above for these tests.
-const realExtractVideoUrl = jest.requireActual<
-  typeof import("@/lib/extractors/instagram-audio")
->("@/lib/extractors/instagram-audio").extractVideoUrl;
-
-describe("extractVideoUrl", () => {
-  // Use realistic cdninstagram.com domains throughout.
-  const CDN_URL = "https://scontent-sea1-1.cdninstagram.com/v/t50.2886-16/reel.mp4";
-  const EMBED_URL = "https://www.instagram.com/reel/ABC123/embed/captioned/";
-
-  test("parses og:video:secure_url when it is a CDN URL", () => {
-    const html = `<html><head>
-      <meta property="og:video:secure_url" content="${CDN_URL}" />
-      <meta property="og:video" content="${CDN_URL}" />
-    </head><body></body></html>`;
-    expect(realExtractVideoUrl(html)).toBe(CDN_URL);
-  });
-
-  test("falls back to og:video when secure_url is absent (CDN URL)", () => {
-    const html = `<html><head>
-      <meta property="og:video" content="${CDN_URL}" />
-    </head><body></body></html>`;
-    expect(realExtractVideoUrl(html)).toBe(CDN_URL);
-  });
-
-  test("skips og:video that is an Instagram embed page URL (not a video CDN)", () => {
-    // Instagram's og:video typically contains the embed HTML page, not the MP4.
-    // We must not return it — fetching it would give HTML, not audio.
-    const html = `<html><head>
-      <meta property="og:video" content="${EMBED_URL}" />
-      <meta property="og:video:type" content="text/html" />
-    </head><body></body></html>`;
-    expect(realExtractVideoUrl(html)).toBeNull();
-  });
-
-  test("parses contentUrl from JSON-LD VideoObject", () => {
-    const html = `<html><head>
-      <script type="application/ld+json">
-      {
-        "@context": "https://schema.org",
-        "@type": "VideoObject",
-        "name": "chef_demo on Instagram",
-        "description": "Recipe caption here",
-        "contentUrl": "${CDN_URL}"
-      }
-      </script>
-    </head><body></body></html>`;
-    expect(realExtractVideoUrl(html)).toBe(CDN_URL);
-  });
-
-  test("prefers og:video CDN URL over JSON-LD contentUrl", () => {
-    const otherCdn = "https://scontent-lax3-1.cdninstagram.com/v/t50/jsonld.mp4";
-    const html = `<html><head>
-      <meta property="og:video:secure_url" content="${CDN_URL}" />
-      <script type="application/ld+json">
-      { "@type": "VideoObject", "contentUrl": "${otherCdn}" }
-      </script>
-    </head><body></body></html>`;
-    expect(realExtractVideoUrl(html)).toBe(CDN_URL);
-  });
-
-  test("falls back to JSON-LD contentUrl when og:video is an embed URL", () => {
-    const html = `<html><head>
-      <meta property="og:video" content="${EMBED_URL}" />
-      <script type="application/ld+json">
-      { "@type": "VideoObject", "contentUrl": "${CDN_URL}" }
-      </script>
-    </head><body></body></html>`;
-    expect(realExtractVideoUrl(html)).toBe(CDN_URL);
-  });
-
-  test("falls back to JSON-LD contentUrl when og:video is absent", () => {
-    const html = `<html><head>
-      <meta property="og:description" content="some caption" />
-      <script type="application/ld+json">
-      { "@type": "VideoObject", "contentUrl": "${CDN_URL}" }
-      </script>
-    </head><body></body></html>`;
-    expect(realExtractVideoUrl(html)).toBe(CDN_URL);
-  });
-
-  test("finds CDN video URL embedded in script tag JSON (regex scan)", () => {
-    // Simulates window._sharedData or window.__additionalDataLoaded patterns
-    // where Instagram embeds the video CDN URL in a <script> block as a JSON
-    // string value — common when JSON-LD and og:video tags are absent.
-    const html = `<html><head>
-      <meta property="og:description" content="some caption" />
-    </head><body>
-    <script type="text/javascript">
-    window.__additionalDataLoaded('/reel/ABC123/',{"items":[{"video_url":"${CDN_URL}?bytestart=0&byteend=1234"}]});
-    </script>
-    </body></html>`;
-    expect(realExtractVideoUrl(html)).toBe(CDN_URL + "?bytestart=0&byteend=1234");
-  });
-
-  test("handles JSON-escaped slashes in CDN URL (regex scan)", () => {
-    const escaped = CDN_URL.replace(/\//g, "\\/");
-    const html = `<html><body><script>var x={"video_url":"${escaped}"};</script></body></html>`;
-    expect(realExtractVideoUrl(html)).toBe(CDN_URL);
-  });
-
-  test("does not match image thumbnail URLs (.jpg) — only .mp4 videos", () => {
-    // The og:image thumbnail lives on cdninstagram.com/v/ too (t51.* prefix, .jpg).
-    // We must NOT return it — it's a JPEG, not a video, and the CDN returns 403.
-    const html = `<html><head>
-      <meta property="og:image" content="https://scontent-iad3-1.cdninstagram.com/v/t51.82787-15/image.jpg?_nc_ht=scontent-iad3-1.cdninstagram.com&amp;oe=ABC" />
-      <meta property="og:video" content="https://www.instagram.com/reel/ABC123/embed/captioned/" />
-    </head><body></body></html>`;
-    expect(realExtractVideoUrl(html)).toBeNull();
-  });
-
-  test("decodes &amp; HTML entities in CDN URL query parameters", () => {
-    // og:image / og:description attributes in raw HTML use &amp; instead of &.
-    // A video URL found in raw attribute markup would be malformed without this fix.
-    const html = `<html><head>
-      <meta property="og:description" content="some caption" />
-    </head><body>
-    <script type="text/javascript">
-    window.__data={"video_url":"https:\\/\\/scontent-sea1-1.cdninstagram.com\\/v\\/t50.2886-16\\/reel.mp4?_nc_ht=scontent-sea1-1.cdninstagram.com&amp;oe=ABCDEF"};
-    </script>
-    </body></html>`;
-    const result = realExtractVideoUrl(html);
-    expect(result).not.toBeNull();
-    // The returned URL must have & not &amp;
-    expect(result).toContain("oe=ABCDEF");
-    expect(result).not.toContain("&amp;");
-  });
-
-  test("returns null when no video meta tags are present", () => {
-    const html = `<html><head>
-      <meta property="og:description" content="some caption" />
-    </head><body></body></html>`;
-    expect(realExtractVideoUrl(html)).toBeNull();
-  });
-
-  test("returns null for an empty page", () => {
-    expect(realExtractVideoUrl("<html><body></body></html>")).toBeNull();
-  });
-
-  test("returns null for JSON-LD VideoObject without contentUrl", () => {
-    // The test fixture has a VideoObject with only name/description (no contentUrl).
-    expect(realExtractVideoUrl(recipeHtml)).toBeNull();
-  });
-});
-
-// ─── unescapeEmbedded ─────────────────────────────────────────────────────────
-
-const realUnescapeEmbedded = jest.requireActual<
-  typeof import("@/lib/extractors/instagram-audio")
->("@/lib/extractors/instagram-audio").unescapeEmbedded;
-
-describe("unescapeEmbedded", () => {
-  test("decodes single-level escaped slashes", () => {
-    expect(realUnescapeEmbedded("https:\\/\\/x.mp4")).toBe("https://x.mp4");
-  });
-
-  test("decodes \\u002F unicode slashes and \\u0026 ampersands", () => {
-    expect(realUnescapeEmbedded("a\\u002Fb\\u0026c")).toBe("a/b&c");
-  });
-
-  test("decodes &amp; HTML entities", () => {
-    expect(realUnescapeEmbedded("a&amp;b&amp;c")).toBe("a&b&c");
-  });
-
-  test("unwraps double-escaped slashes (contextJSON nesting) until stable", () => {
-    // Double-escaped: each "/" stored as "\\/" then escaped again to "\\\\/".
-    const doubled = "https:\\\\/\\\\/scontent.cdninstagram.com\\\\/v\\\\/reel.mp4";
-    expect(realUnescapeEmbedded(doubled)).toBe(
-      "https://scontent.cdninstagram.com/v/reel.mp4"
-    );
-  });
-
-  test("leaves a clean URL untouched", () => {
-    const url = "https://scontent.cdninstagram.com/o1/reel.mp4?efg=1";
-    expect(realUnescapeEmbedded(url)).toBe(url);
-  });
-});
-
-// ─── extractVideoUrlFromApiJson ───────────────────────────────────────────────
-
-const realExtractVideoUrlFromApiJson = jest.requireActual<
-  typeof import("@/lib/extractors/instagram-audio")
->("@/lib/extractors/instagram-audio").extractVideoUrlFromApiJson;
-
-describe("extractVideoUrlFromApiJson", () => {
-  const CDN_URL = "https://scontent-sea1-1.cdninstagram.com/v/t50.2886-16/reel.mp4";
-
-  test("returns video_url at top level when it is a CDN URL", () => {
-    expect(realExtractVideoUrlFromApiJson({ video_url: CDN_URL })).toBe(CDN_URL);
-  });
-
-  test("finds video_url nested inside GraphQL edge structure", () => {
-    const graphql = {
-      graphql: {
-        shortcode_media: {
-          __typename: "GraphVideo",
-          video_url: CDN_URL,
-        },
-      },
-    };
-    expect(realExtractVideoUrlFromApiJson(graphql)).toBe(CDN_URL);
-  });
-
-  test("finds video_url inside an array of media items", () => {
-    const data = { items: [{ media_type: 2, video_url: CDN_URL }] };
-    expect(realExtractVideoUrlFromApiJson(data)).toBe(CDN_URL);
-  });
-
-  test("finds url inside video_versions[] (authenticated media/info shape)", () => {
-    const data = {
-      items: [
-        {
-          video_versions: [
-            { type: 101, width: 720, url: CDN_URL },
-            { type: 102, width: 480, url: "https://other.cdninstagram.com/v/low.mp4" },
-          ],
-        },
-      ],
-    };
-    expect(realExtractVideoUrlFromApiJson(data)).toBe(CDN_URL);
-  });
-
-  test("finds playable_url when present", () => {
-    expect(realExtractVideoUrlFromApiJson({ clip: { playable_url: CDN_URL } })).toBe(CDN_URL);
-  });
-
-  test("ignores video_versions entries whose url is not a CDN URL", () => {
-    const data = { video_versions: [{ url: "https://example.com/not-cdn.mp4" }] };
-    expect(realExtractVideoUrlFromApiJson(data)).toBeNull();
-  });
-
-  test("returns null when video_url is absent", () => {
-    expect(realExtractVideoUrlFromApiJson({ title: "Garlic Pasta", caption: "yum" })).toBeNull();
-  });
-
-  test("returns null when video_url is not a CDN URL (e.g. a relative path)", () => {
-    expect(realExtractVideoUrlFromApiJson({ video_url: "/relative/path.mp4" })).toBeNull();
-  });
-
-  test("returns null for non-object inputs", () => {
-    expect(realExtractVideoUrlFromApiJson(null)).toBeNull();
-    expect(realExtractVideoUrlFromApiJson("string")).toBeNull();
-    expect(realExtractVideoUrlFromApiJson(42)).toBeNull();
-  });
-});
-
 // ─── binaryFetch ──────────────────────────────────────────────────────────────
 
 const realBinaryFetch = jest.requireActual<
@@ -359,6 +92,8 @@ const realBinaryFetch = jest.requireActual<
 >("@/lib/extractors/instagram-audio").binaryFetch;
 
 describe("binaryFetch", () => {
+  // Must be an Instagram CDN host to pass binaryFetch's host validation.
+  const CDN_URL = "https://scontent-sea1-1.cdninstagram.com/v/t50/reel.mp4";
   const originalFetch = global.fetch;
   afterAll(() => {
     global.fetch = originalFetch;
@@ -373,13 +108,26 @@ describe("binaryFetch", () => {
     });
   }
 
+  test("rejects a non-CDN host without fetching", async () => {
+    global.fetch = jest.fn();
+    const spy = jest.spyOn(console, "error").mockImplementation(() => {});
+    const result = await realBinaryFetch("https://evil.example.com/internal", {
+      maxBytes: 1024,
+      timeoutMs: 5000,
+    });
+    expect(result).toBeNull();
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("non-CDN host"));
+    spy.mockRestore();
+  });
+
   test("returns a Buffer on a successful response", async () => {
     const data = new Uint8Array([1, 2, 3, 4]);
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       body: makeStream(data),
     });
-    const result = await realBinaryFetch("https://cdn.example.com/reel.mp4", {
+    const result = await realBinaryFetch(CDN_URL, {
       maxBytes: 1024,
       timeoutMs: 5000,
     });
@@ -390,7 +138,7 @@ describe("binaryFetch", () => {
   test("returns null and logs error when response is not ok", async () => {
     global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 403, body: null });
     const spy = jest.spyOn(console, "error").mockImplementation(() => {});
-    const result = await realBinaryFetch("https://cdn.example.com/reel.mp4", {
+    const result = await realBinaryFetch(CDN_URL, {
       maxBytes: 1024,
       timeoutMs: 5000,
     });
@@ -406,7 +154,7 @@ describe("binaryFetch", () => {
       body: makeStream(data),
     });
     const spy = jest.spyOn(console, "error").mockImplementation(() => {});
-    const result = await realBinaryFetch("https://cdn.example.com/reel.mp4", {
+    const result = await realBinaryFetch(CDN_URL, {
       maxBytes: 50,
       timeoutMs: 5000,
     });
@@ -419,7 +167,7 @@ describe("binaryFetch", () => {
   test("returns null and logs a diagnostic on fetch error", async () => {
     global.fetch = jest.fn().mockRejectedValue(new Error("network error"));
     const spy = jest.spyOn(console, "error").mockImplementation(() => {});
-    const result = await realBinaryFetch("https://cdn.example.com/reel.mp4", {
+    const result = await realBinaryFetch(CDN_URL, {
       maxBytes: 1024,
       timeoutMs: 5000,
     });

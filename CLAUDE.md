@@ -43,7 +43,7 @@ APIFY_TOKEN=apify_api_...       # Apify scraper — fetches Instagram reel capti
 npm install
 npm run db:deploy  # apply Prisma migrations (once per database)
 npm run dev        # http://localhost:3000
-npm test           # run all tests (414 passing; no DB needed — Prisma is mocked)
+npm test           # run all tests (387 passing; no DB needed — Prisma is mocked)
 npm run build      # production build: prisma generate → migrate deploy → next build
 ```
 
@@ -55,13 +55,13 @@ npm run build      # production build: prisma generate → migrate deploy → ne
 
 ## Test Coverage
 
-414 tests across 12 suites:
+387 tests across 12 suites:
 - `tests/units.test.ts` — unit conversions + ingredient text parser, incl. mixed/unicode ranges
 - `tests/normalization.test.ts` — registry lookup, alias matching, soy sauce disambiguation, messy-name robustness
 - `tests/extraction.test.ts` — schema.org extraction for all 4 target sites + `parseInstructions` for every JSON-LD instruction shape
 - `tests/instagram.test.ts` — Instagram URL detection, caption extraction (JSON-LD + og:description), recipe heuristic gate, and the caption-only path (LLM mocked)
 - `tests/instagram-scraper.test.ts` — `fetchInstagramMedia` request shape + caption/videoUrl parsing + degradation (unconfigured token, empty/non-array/non-ok responses)
-- `tests/instagram-audio.test.ts` — video-URL/JSON helpers, `binaryFetch`, Whisper (mocked), and `extractFromInstagramWithAudio` orchestration (caption→audio fallback, graceful degradation)
+- `tests/instagram-audio.test.ts` — host-validated `binaryFetch` (CDN-only, size cap, diagnostics), Whisper (mocked), and `extractFromInstagramWithAudio` orchestration (caption→audio fallback, caption+transcript merge, graceful degradation)
 - `tests/extract-route.test.ts` — `/api/extract` pasted-text branch: direct LLM extraction, url passthrough/synthesis, no fetching
 - `tests/llm-fallback.test.ts` — `extractJsonText` unwraps markdown-fenced / prose-wrapped LLM JSON responses
 - `tests/rescale.test.ts` — ingredient quantity rescaling by servings

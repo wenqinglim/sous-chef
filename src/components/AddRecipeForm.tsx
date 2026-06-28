@@ -59,10 +59,18 @@ export default function AddRecipeForm() {
       for (const event of events) {
         const line = event.trim();
         if (!line.startsWith("data: ")) continue;
-        const evt = JSON.parse(line.slice(6));
+        // Tolerate a malformed/partial frame rather than throwing up to the
+        // outer catch (which would show a bogus "Network error" after a
+        // server-side success).
+        let evt: { type?: string; message?: string; recipe?: Recipe; saved?: boolean; error?: string };
+        try {
+          evt = JSON.parse(line.slice(6));
+        } catch {
+          continue;
+        }
 
         if (evt.type === "status") {
-          setStatusMsg(evt.message);
+          setStatusMsg(evt.message ?? null);
         } else if (evt.type === "result") {
           const recipe = evt.recipe as Recipe;
           if (evt.saved && recipe?.id) {

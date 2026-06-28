@@ -26,11 +26,16 @@ export interface InstagramMedia {
 const APIFY_ENDPOINT =
   "https://api.apify.com/v2/acts/apify~instagram-scraper/run-sync-get-dataset-items";
 
-// The actor cold-starts on each run, so allow generous time — but stay under the
-// /api/extract route's maxDuration (60s) so we fail cleanly rather than the whole
-// request timing out. (A RapidAPI provider would respond in 1–3s if latency ever
-// becomes a problem; swap it in behind fetchInstagramMedia without other changes.)
-const APIFY_TIMEOUT_MS = 55_000;
+// Backstop timeout, NOT a steady-state budget. The actor cold-starts on each run,
+// but in practice returns in a few seconds. This matters because on the audio-
+// fallback path the request must still binaryFetch (≤30s) and transcribe with
+// Whisper *after* this call returns — so if Apify ever ran near its full budget,
+// the total would blow past the /api/extract route's 60s maxDuration and the
+// platform would kill the request mid-transcription. We keep the budget well under
+// 60s and rely on Apify being fast; a reel that genuinely needs ~45s of scraping
+// will fail the audio path either way. (A RapidAPI provider would respond in 1–3s
+// if latency ever becomes a problem; swap it in behind fetchInstagramMedia.)
+const APIFY_TIMEOUT_MS = 45_000;
 
 function firstString(...vals: unknown[]): string | null {
   for (const v of vals) {
