@@ -162,7 +162,10 @@ export interface SafeFetchResult {
  */
 export async function safeFetch(
   rawUrl: string,
-  opts: { timeoutMs?: number; userAgent?: string } = {}
+  opts: {
+    timeoutMs?: number;
+    userAgent?: string;
+  } = {}
 ): Promise<SafeFetchResult> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const userAgent = opts.userAgent ?? DEFAULT_USER_AGENT;

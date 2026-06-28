@@ -1,14 +1,20 @@
 /**
  * POST /api/extract
  *
- * Server-side recipe extraction from a URL.
- * Must be server-side to avoid CORS restrictions.
+ * Server-side recipe extraction from a URL, streamed as Server-Sent Events.
  *
- * Body:  { url: string }
- * 200:   { recipe: Recipe, saved: boolean }  (saved=false when the DB is unreachable)
- * 400:   { error: string }  (invalid URL)
- * 422:   { error: string }  (extraction failed — no ingredients found)
- * 502:   { error: string }  (fetch failed)
+ * Body:  { url?: string, text?: string }   — at least one required
+ *   url  — a recipe website or Instagram reel to fetch + extract
+ *   text — pasted caption/recipe text to extract directly (no fetch); the
+ *          manual fallback when an Instagram reel can't be fetched. `url`, if
+ *          also given, is kept as the recipe's source link.
+ *
+ * Response: text/event-stream, 200 OK (stream always opens; errors arrive as events)
+ *   { type: "status",  message: string }          — progress update (Instagram audio path)
+ *   { type: "result",  recipe: Recipe, saved: boolean }
+ *   { type: "error",   error: string, status: number }  — 400 / 422 / 502 semantics
+ *
+ * Pre-stream 400: invalid JSON body or invalid URL (before stream opens).
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -18,35 +24,46 @@ import { extractFromSchemaOrg, extractBodyText } from "@/lib/extractors/schema-o
 import { extractWithLlm } from "@/lib/extractors/llm-fallback";
 import {
   isInstagramUrl,
-  extractFromInstagram,
-  INSTAGRAM_USER_AGENT,
+  extractFromInstagramWithAudio,
 } from "@/lib/extractors/instagram";
 import { safeFetch, BlockedUrlError } from "@/lib/extractors/safe-fetch";
 import { upsertRecipeByUrl } from "@/lib/db/recipes";
 
-/**
- * Auto-save the extracted recipe to the shared library, deduping by URL.
- * Extraction must keep working when the DB is down/cold, so failures degrade
- * to saved: false with the unsaved recipe.
- */
-async function saveExtracted(recipe: Recipe) {
+export const maxDuration = 60;
+
+// Either a URL to fetch, or pasted caption/recipe text (the manual fallback when
+// an Instagram reel can't be fetched automatically). `url` is still optional in
+// paste mode so the saved recipe can link back to (and dedupe against) the reel.
+const RequestSchema = z
+  .object({
+    url: z.string().url().optional(),
+    text: z.string().trim().min(1).optional(),
+  })
+  .refine((d) => d.url || d.text, {
+    message: "Provide a recipe URL or pasted recipe text",
+  });
+
+const encoder = new TextEncoder();
+
+function emit(controller: ReadableStreamDefaultController, payload: object) {
+  controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+}
+
+async function saveExtracted(
+  recipe: Recipe,
+  controller: ReadableStreamDefaultController
+) {
   try {
     const saved = await upsertRecipeByUrl(recipe);
-    return NextResponse.json({ recipe: saved, saved: true });
+    emit(controller, { type: "result", recipe: saved, saved: true });
   } catch (err) {
     console.error(`Failed to save recipe to library (${recipe.url}):`, err);
-    return NextResponse.json({ recipe, saved: false });
+    emit(controller, { type: "result", recipe, saved: false });
   }
 }
 
-export const maxDuration = 60;
-
-const RequestSchema = z.object({
-  url: z.string().url(),
-});
-
 export async function POST(request: NextRequest) {
-  // Parse and validate request body
+  // Validate request body before opening the stream.
   let body: unknown;
   try {
     body = await request.json();
@@ -62,76 +79,119 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { url } = parsed.data;
+  const { url, text } = parsed.data;
+  const instagram = url ? isInstagramUrl(url) : false;
 
-  // Instagram only renders the caption preview for link-unfurl crawlers, so
-  // reels must be fetched with a crawler User-Agent (a browser UA gets a
-  // caption-less login shell). Decide here, before fetching.
-  const instagram = isInstagramUrl(url);
+  const stream = new ReadableStream({
+    async start(controller) {
+      const onStatus = (msg: string) =>
+        emit(controller, { type: "status", message: msg });
 
-  // Fetch the recipe page server-side (bypasses CORS) through the SSRF-safe
-  // wrapper, since we now accept arbitrary user-supplied URLs.
-  let html: string;
-  try {
-    const result = await safeFetch(
-      url,
-      instagram ? { userAgent: INSTAGRAM_USER_AGENT } : {}
-    );
-    if (!result.ok) {
-      return NextResponse.json(
-        { error: `Failed to fetch URL: HTTP ${result.status}` },
-        { status: 502 }
-      );
-    }
-    html = result.text;
-  } catch (err) {
-    if (err instanceof BlockedUrlError) {
-      return NextResponse.json({ error: err.message }, { status: 400 });
-    }
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json(
-      { error: `Failed to fetch URL: ${message}` },
-      { status: 502 }
-    );
-  }
+      // ── Pasted-text branch ──────────────────────────────────────────────
+      // No fetching: the user supplied the caption/recipe text directly (the
+      // manual fallback when an Instagram reel can't be fetched). A synthesized
+      // url keeps each pasted recipe deduped to its own library row.
+      if (text) {
+        // Reuse the reel URL when given (links back + dedupes); else a unique one.
+        const recipeUrl = url ?? `paste:${crypto.randomUUID()}`;
+        const llmResult = await extractWithLlm(text, recipeUrl);
+        if (llmResult.recipe) {
+          await saveExtracted(llmResult.recipe, controller);
+        } else {
+          const status = llmResult.kind === "no_recipe" ? 422 : 502;
+          emit(controller, {
+            type: "error",
+            error:
+              llmResult.error ??
+              "Could not find a recipe in the pasted text",
+            status,
+          });
+        }
+        controller.close();
+        return;
+      }
 
-  // Instagram reels have no recipe JSON-LD — the recipe lives in the caption.
-  // Branch to the caption-based extractor instead of scraping the login wall.
-  if (instagram) {
-    const igResult = await extractFromInstagram(html, url);
-    if (igResult.recipe) {
-      return saveExtracted(igResult.recipe);
-    }
-    // 422 only when the caption genuinely isn't a recipe; an extractor/LLM
-    // failure (login wall, API outage, missing key) is a 502-class problem and
-    // shouldn't be reported to the user as "not a recipe".
-    const status = igResult.kind === "no_recipe" ? 422 : 502;
-    return NextResponse.json(
-      { error: igResult.error ?? "Could not find a recipe in this Instagram caption" },
-      { status }
-    );
-  }
+      // ── Instagram branch (scraper-sourced; no upfront page fetch) ────────
+      if (instagram) {
+        const igResult = await extractFromInstagramWithAudio(url!, onStatus);
+        if (igResult.recipe) {
+          await saveExtracted(igResult.recipe, controller);
+        } else {
+          const status = igResult.kind === "no_recipe" ? 422 : 502;
+          emit(controller, {
+            type: "error",
+            error:
+              igResult.error ??
+              "Could not find a recipe in this Instagram reel",
+            status,
+          });
+        }
+        controller.close();
+        return;
+      }
 
-  // Try schema.org extraction first
-  const schemaResult = extractFromSchemaOrg(html, url);
-  if (schemaResult.recipe) {
-    return saveExtracted(schemaResult.recipe);
-  }
+      // ── Fetch the page (websites) ───────────────────────────────────────
+      // Past the text + Instagram branches, the schema's refine guarantees a url.
+      const pageUrl = url!;
+      let html: string;
+      try {
+        const result = await safeFetch(pageUrl, {});
+        if (!result.ok) {
+          emit(controller, {
+            type: "error",
+            error: `Failed to fetch URL: HTTP ${result.status}`,
+            status: 502,
+          });
+          controller.close();
+          return;
+        }
+        html = result.text;
+      } catch (err) {
+        if (err instanceof BlockedUrlError) {
+          emit(controller, { type: "error", error: err.message, status: 400 });
+        } else {
+          const message = err instanceof Error ? err.message : String(err);
+          emit(controller, {
+            type: "error",
+            error: `Failed to fetch URL: ${message}`,
+            status: 502,
+          });
+        }
+        controller.close();
+        return;
+      }
 
-  // Fall back to LLM extraction
-  const bodyText = extractBodyText(html);
-  const llmResult = await extractWithLlm(bodyText, url);
-  if (llmResult.recipe) {
-    return saveExtracted(llmResult.recipe);
-  }
+      // ── Non-Instagram branch ────────────────────────────────────────────
+      const schemaResult = extractFromSchemaOrg(html, pageUrl);
+      if (schemaResult.recipe) {
+        await saveExtracted(schemaResult.recipe, controller);
+        controller.close();
+        return;
+      }
 
-  return NextResponse.json(
-    {
-      error:
-        llmResult.error ??
-        schemaResult.error ??
-        "Could not extract recipe from this URL",
+      const bodyText = extractBodyText(html);
+      const llmResult = await extractWithLlm(bodyText, pageUrl);
+      if (llmResult.recipe) {
+        await saveExtracted(llmResult.recipe, controller);
+      } else {
+        emit(controller, {
+          type: "error",
+          error:
+            llmResult.error ??
+            schemaResult.error ??
+            "Could not extract recipe from this URL",
+          status: 422,
+        });
+      }
+      controller.close();
     },
-    { status: 422 }
-  );
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
 }
