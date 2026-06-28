@@ -177,7 +177,7 @@ describe("safeFetch — request headers", () => {
     expect(headers["Accept"]).toContain("text/html");
   });
 
-  test("custom userAgent opts out of the browser fingerprint", async () => {
+  test("custom userAgent opts out of the bot fingerprint but keeps Accept", async () => {
     const fetchMock = mock200();
     await safeFetch("http://recipe.example.com/r", {
       userAgent: "facebookexternalhit/1.1",
@@ -185,6 +185,10 @@ describe("safeFetch — request headers", () => {
 
     const headers = sentHeaders(fetchMock);
     expect(headers["User-Agent"]).toBe("facebookexternalhit/1.1");
+    // Accept / Accept-Language are unconditional — a real crawler sends them too.
+    expect(headers["Accept"]).toContain("text/html");
+    expect(headers["Accept-Language"]).toBe("en-US,en;q=0.9");
+    // ...but the browser fingerprint headers are dropped.
     expect(headers["Sec-Fetch-Mode"]).toBeUndefined();
     expect(headers["Sec-Ch-Ua"]).toBeUndefined();
     expect(headers["Upgrade-Insecure-Requests"]).toBeUndefined();

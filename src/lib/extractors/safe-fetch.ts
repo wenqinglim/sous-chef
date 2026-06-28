@@ -32,23 +32,29 @@ export class BlockedUrlError extends Error {
 const MAX_REDIRECTS = 5;
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5 MB
 const DEFAULT_TIMEOUT_MS = 15_000;
+// MAINTENANCE: the Chrome major version here and the Sec-Ch-Ua `v="…"` in
+// BROWSER_FINGERPRINT_HEADERS below must be bumped *together* — a UA whose
+// version disagrees with its Sec-Ch-Ua is itself a bot tell. Refresh both to a
+// current stable Chrome whenever recipe-site 403s start recurring.
 const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
+/** Sent on every request regardless of UA — a real crawler sends these too. */
+const ACCEPT_HEADER =
+  "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7";
+const ACCEPT_LANGUAGE_HEADER = "en-US,en;q=0.9";
+
 /**
- * Headers that model a real Chrome top-level navigation. Many recipe sites sit
- * behind Cloudflare-style bot mitigation that returns 403 to requests missing a
- * complete, consistent browser fingerprint (client hints + fetch metadata). These
- * are applied only on the default-UA path; a caller that supplies its own
- * `userAgent` (e.g. a crawler UA) opts out so its fingerprint stays internally
- * consistent. The Sec-Ch-Ua version matches DEFAULT_USER_AGENT above.
- * Accept-Encoding is intentionally omitted so the runtime negotiates compression
- * and returns a decoded body.
+ * Client-hint + fetch-metadata headers that model a real Chrome top-level
+ * navigation. Many recipe sites sit behind Cloudflare-style bot mitigation that
+ * returns 403 to requests missing this fingerprint. Applied only on the
+ * default-UA path; a caller that supplies its own `userAgent` (e.g. a crawler)
+ * opts out so its fingerprint stays internally consistent. The Sec-Ch-Ua version
+ * must match DEFAULT_USER_AGENT above (see MAINTENANCE note). Accept-Encoding is
+ * intentionally omitted so the runtime negotiates compression and returns a
+ * decoded body.
  */
-const DEFAULT_BROWSER_HEADERS: Record<string, string> = {
-  Accept:
-    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-  "Accept-Language": "en-US,en;q=0.9",
+const BROWSER_FINGERPRINT_HEADERS: Record<string, string> = {
   "Upgrade-Insecure-Requests": "1",
   "Sec-Fetch-Dest": "document",
   "Sec-Fetch-Mode": "navigate",
@@ -201,9 +207,13 @@ export async function safeFetch(
     const response = await fetch(validated.toString(), {
       headers: {
         "User-Agent": userAgent,
-        // Full browser fingerprint only on the default-UA path; a caller-supplied
-        // userAgent (e.g. a crawler) opts out to keep its fingerprint consistent.
-        ...(opts.userAgent ? {} : DEFAULT_BROWSER_HEADERS),
+        // Accept / Accept-Language go out on every request (a real crawler sends
+        // them too). The bot fingerprint is added only on the default-UA path; a
+        // caller-supplied userAgent (e.g. a crawler) opts out of just those to
+        // keep its own fingerprint internally consistent.
+        Accept: ACCEPT_HEADER,
+        "Accept-Language": ACCEPT_LANGUAGE_HEADER,
+        ...(opts.userAgent ? {} : BROWSER_FINGERPRINT_HEADERS),
       },
       redirect: "manual",
       signal: AbortSignal.timeout(timeoutMs),
