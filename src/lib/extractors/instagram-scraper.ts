@@ -13,6 +13,8 @@
  * (e.g. a faster RapidAPI endpoint) can be dropped in without touching callers.
  */
 
+import { runApifyActor } from "@/lib/extractors/apify";
+
 export interface InstagramMedia {
   /** Reel caption text (already de-preambled by the provider), or null. */
   caption: string | null;
@@ -53,56 +55,23 @@ function firstString(...vals: unknown[]): string | null {
 export async function fetchInstagramMedia(
   url: string
 ): Promise<InstagramMedia | null> {
-  const token = process.env.APIFY_TOKEN;
-  if (!token) {
-    console.error(
-      "[IG] APIFY_TOKEN not set — cannot fetch reel via scraper API. Paste the caption to import."
-    );
-    return null;
-  }
+  const items = await runApifyActor(
+    APIFY_ENDPOINT,
+    {
+      directUrls: [url],
+      resultsType: "details",
+      resultsLimit: 1,
+      addParentData: false,
+    },
+    { timeoutMs: APIFY_TIMEOUT_MS, logPrefix: "[IG]" }
+  );
+  if (!items) return null;
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), APIFY_TIMEOUT_MS);
-  try {
-    const res = await fetch(
-      `${APIFY_ENDPOINT}?token=${encodeURIComponent(token)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          directUrls: [url],
-          resultsType: "details",
-          resultsLimit: 1,
-          addParentData: false,
-        }),
-        signal: controller.signal,
-      }
-    );
-
-    if (!res.ok) {
-      console.error(`[IG] Apify scraper returned HTTP ${res.status}`);
-      return null;
-    }
-
-    const items: unknown = await res.json();
-    if (!Array.isArray(items) || items.length === 0) {
-      console.error(
-        "[IG] Apify scraper returned no items (reel private, removed, or quota exhausted?)."
-      );
-      return null;
-    }
-
-    const item = items[0] as Record<string, unknown>;
-    const caption = firstString(item.caption);
-    const videoUrl = firstString(item.videoUrl, item.videoUrlBackup);
-    console.error(
-      `[IG] Apify scraper: caption=${caption ? `${caption.length} chars` : "none"}, video=${videoUrl ? "yes" : "none"}`
-    );
-    return { caption, videoUrl };
-  } catch (e) {
-    console.error("[IG] Apify scraper fetch failed:", e);
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
+  const item = items[0] as Record<string, unknown>;
+  const caption = firstString(item.caption);
+  const videoUrl = firstString(item.videoUrl, item.videoUrlBackup);
+  console.error(
+    `[IG] Apify scraper: caption=${caption ? `${caption.length} chars` : "none"}, video=${videoUrl ? "yes" : "none"}`
+  );
+  return { caption, videoUrl };
 }
