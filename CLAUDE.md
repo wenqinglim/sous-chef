@@ -43,7 +43,7 @@ APIFY_TOKEN=apify_api_...       # Apify scraper — fetches Instagram reel capti
 npm install
 npm run db:deploy  # apply Prisma migrations (once per database)
 npm run dev        # http://localhost:3000
-npm test           # run all tests (381 passing; no DB needed — Prisma is mocked)
+npm test           # run all tests (405 passing; no DB needed — Prisma is mocked)
 npm run build      # production build: prisma generate → migrate deploy → next build
 ```
 
@@ -55,10 +55,11 @@ npm run build      # production build: prisma generate → migrate deploy → ne
 
 ## Test Coverage
 
-381 tests across 13 suites:
+405 tests across 14 suites:
 - `tests/units.test.ts` — unit conversions + ingredient text parser, incl. mixed/unicode ranges
 - `tests/normalization.test.ts` — registry lookup, alias matching, soy sauce disambiguation, messy-name robustness
-- `tests/extraction.test.ts` — schema.org extraction for all 4 target sites + `parseInstructions` for every JSON-LD instruction shape
+- `tests/extraction.test.ts` — schema.org extraction for all 4 target sites + `parseInstructions` for every JSON-LD instruction shape (incl. `HowToSection` → step section labels) + `extractIngredientGroups`/`assignIngredientSections` (WPRM + Tasty Recipes ingredient-group HTML → ingredient sections)
+- `tests/sections.test.ts` — `normalizeInstructions` (legacy `string[]` → `InstructionStep[]`) + `groupBySection` consecutive-run grouping
 - `tests/instagram.test.ts` — Instagram URL detection (`isInstagramUrl`) and the recipe heuristic gate (`looksLikeRecipe`)
 - `tests/instagram-scraper.test.ts` — `fetchInstagramMedia` request shape + caption/videoUrl parsing + degradation (unconfigured token, empty/non-array/non-ok responses)
 - `tests/instagram-audio.test.ts` — host-validated `binaryFetch` (CDN-only, size cap, diagnostics), Whisper (mocked), and `extractFromInstagramWithAudio` orchestration (caption→audio fallback, caption+transcript merge, graceful degradation)
@@ -135,6 +136,23 @@ Shape: `{ id, name: null, recipes: [{ recipe_id, target_servings }] }`. "Saved m
 ### Manual edit step is part of MVP
 After parsing, show the user extracted ingredients for confirmation before processing. Parsing fails more often than you'd think.
 
+### Recipe sections are preserved, not flattened
+Recipes often group ingredients/steps under subheadings (e.g. "For the sauce").
+Each `RecipeIngredient` and `InstructionStep` carries an optional `section`
+label, and the detail/editor UIs render consecutive same-label runs under that
+heading (`groupBySection` in `src/lib/recipe/sections.ts`). Sources of the label:
+- **Instructions**: schema.org `HowToSection.name` (captured by `parseInstructions`)
+  for all sites; the LLM path supplies it too.
+- **Ingredients**: JSON-LD `recipeIngredient` is flat, so for schema.org sites the
+  labels are mined from the page's recipe-plugin HTML (WP Recipe Maker / Tasty
+  Recipes) via `extractIngredientGroups` + `assignIngredientSections` (index-align
+  when counts match, else text-match, else null). The LLM path supplies them directly.
+
+The grocery pipeline ignores `section` entirely — it still flattens + aggregates
+by `canonical_id`, so sectioning is display-only and never affects the list.
+`section` is additive on the JSONB columns (no migration); legacy `string[]`
+instructions are coerced to `InstructionStep[]` at read via `normalizeInstructions`.
+
 ## Data Model
 
 ```typescript
@@ -158,7 +176,7 @@ Recipe {
   parsed_at: string      // ISO date; recipes cached for 7 days
   cuisine_source: "asian" | "western" | "unknown"
   ingredients: RecipeIngredient[]
-  instructions: string[]  // numbered cooking steps; [] when extraction found none
+  instructions: InstructionStep[]  // numbered cooking steps; [] when extraction found none
   notes?: string | null   // freeform user notes (customization); absent on fresh extracts
   edited?: boolean         // true once a user saved an edit; guards against re-extract clobber
 }
@@ -170,6 +188,12 @@ RecipeIngredient {
   unit: string | null
   name: string           // parsed name (no quantity/prep notes)
   canonical_id: string | null
+  section?: string | null // group label, e.g. "For the sauce"; null/absent = ungrouped
+}
+
+InstructionStep {
+  text: string            // a single cooking step
+  section?: string | null // group label, e.g. "Make the sauce"; null/absent = ungrouped
 }
 
 MealPlan {
@@ -354,3 +378,4 @@ user copies out never contains oz or lb. Enforced by a regression test in
 - [x] Task 17: Instagram audio fallback (Groq Whisper transcription)
 - [x] Task 18: Scraper-based reel fetch (`APIFY_TOKEN`) + manual caption-paste fallback; drop personal `IG_SESSIONID`
 - [x] Task 19: Residential-scraper HTML fallback for bot-blocked recipe sites (Cloudflare 403 → Apify Website Content Crawler)
+- [x] Task 20: Recipe sections — preserve ingredient/instruction group labels (`section`) end-to-end; render grouped in detail/editor UIs

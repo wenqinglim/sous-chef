@@ -51,7 +51,7 @@ const recipe: Recipe = {
   parsed_at: new Date().toISOString(),
   cuisine_source: "unknown",
   ingredients: [],
-  instructions: ["Boil noodles."],
+  instructions: [{ text: "Boil noodles.", section: null }],
 };
 
 function makeRequest(body: unknown) {

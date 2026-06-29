@@ -58,7 +58,10 @@ const mockRecipeComplete: Recipe = {
   ingredients: [
     { recipe_id: "test-id", raw_text: "200g noodles", quantity: 200, unit: "g", name: "noodles", canonical_id: null },
   ],
-  instructions: ["Boil noodles.", "Toss with garlic butter."],
+  instructions: [
+    { text: "Boil noodles.", section: null },
+    { text: "Toss with garlic butter.", section: null },
+  ],
 };
 
 // Partial recipe — ingredients only, no instructions (the reported bug scenario).

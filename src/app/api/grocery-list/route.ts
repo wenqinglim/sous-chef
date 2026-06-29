@@ -32,8 +32,17 @@ const RecipeSchema = z.object({
   parsed_at: z.string(),
   cuisine_source: z.enum(["asian", "western", "unknown"]),
   ingredients: z.array(IngredientSchema),
-  // Tolerate recipes cached before instructions existed
-  instructions: z.array(z.string()).default([]),
+  // Tolerate recipes cached before instructions existed, plus both the legacy
+  // string[] and current InstructionStep[] shapes. The grocery pipeline ignores
+  // instructions, so we don't normalize here — just accept either.
+  instructions: z
+    .array(
+      z.union([
+        z.string(),
+        z.object({ text: z.string(), section: z.string().nullable().optional() }),
+      ])
+    )
+    .default([]),
 });
 
 const RequestSchema = z.object({

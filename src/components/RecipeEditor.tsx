@@ -11,9 +11,10 @@
  */
 
 import { useState } from "react";
-import type { Recipe, RecipeIngredient } from "@/types";
+import type { InstructionStep, Recipe, RecipeIngredient } from "@/types";
 import { parseIngredient } from "@/lib/units/parser";
 import { rescaleIngredientLine } from "@/lib/units/rescale";
+import { normalizeInstructions } from "@/lib/recipe/sections";
 
 interface Props {
   recipe: Recipe;
@@ -23,15 +24,21 @@ interface Props {
 
 /**
  * A single editable line carrying a stable id, so React keys survive reordering
- * and deletion (index keys would make focus/caret jump between rows).
+ * and deletion (index keys would make focus/caret jump between rows). `section`
+ * is the optional group label (e.g. "For the sauce") this line belongs to.
  */
 interface Line {
   id: string;
   text: string;
+  section: string | null;
 }
 
 let lineSeq = 0;
-const newLine = (text: string): Line => ({ id: `line-${lineSeq++}`, text });
+const newLine = (text: string, section: string | null = null): Line => ({
+  id: `line-${lineSeq++}`,
+  text,
+  section,
+});
 
 function move<T>(arr: T[], from: number, to: number): T[] {
   if (to < 0 || to >= arr.length) return arr;
@@ -45,10 +52,12 @@ export default function RecipeEditor({ recipe, onSaved, onCancel }: Props) {
   const [title, setTitle] = useState(recipe.title);
   const [baseServings, setBaseServings] = useState(recipe.base_servings);
   const [ingredients, setIngredients] = useState<Line[]>(() =>
-    recipe.ingredients.map((ing) => newLine(ing.raw_text))
+    recipe.ingredients.map((ing) => newLine(ing.raw_text, ing.section ?? null))
   );
   const [steps, setSteps] = useState<Line[]>(() =>
-    (recipe.instructions ?? []).map((s) => newLine(s))
+    normalizeInstructions(recipe.instructions).map((s) =>
+      newLine(s.text, s.section ?? null)
+    )
   );
   const [notes, setNotes] = useState(recipe.notes ?? "");
   const [saving, setSaving] = useState(false);
@@ -87,10 +96,10 @@ export default function RecipeEditor({ recipe, onSaved, onCancel }: Props) {
         ? baseServings / ingredientServings
         : 1;
     const builtIngredients: RecipeIngredient[] = ingredients
-      .map((l) => l.text.trim())
-      .filter(Boolean)
-      .map((text) => (factor === 1 ? text : rescaleIngredientLine(text, factor)))
-      .map((raw_text) => {
+      .filter((l) => l.text.trim())
+      .map((l) => {
+        const trimmed = l.text.trim();
+        const raw_text = factor === 1 ? trimmed : rescaleIngredientLine(trimmed, factor);
         const p = parseIngredient(raw_text);
         return {
           recipe_id: recipe.id,
@@ -99,14 +108,22 @@ export default function RecipeEditor({ recipe, onSaved, onCancel }: Props) {
           unit: p.unit,
           name: p.name,
           canonical_id: null,
+          section: l.section?.trim() ? l.section.trim() : null,
         };
       });
+
+    const builtInstructions: InstructionStep[] = steps
+      .map((l) => ({
+        text: l.text.trim(),
+        section: l.section?.trim() ? l.section.trim() : null,
+      }))
+      .filter((s) => s.text);
 
     const body = {
       title: title.trim(),
       base_servings: Math.max(1, baseServings),
       ingredients: builtIngredients,
-      instructions: steps.map((l) => l.text.trim()).filter(Boolean),
+      instructions: builtInstructions,
       notes: notes.trim() ? notes.trim() : null,
     };
 
@@ -268,6 +285,10 @@ function ListEditor({
   function update(i: number, value: string) {
     onChange(items.map((it, idx) => (idx === i ? { ...it, text: value } : it)));
   }
+  function updateSection(i: number, value: string) {
+    const section = value.trim() ? value : null;
+    onChange(items.map((it, idx) => (idx === i ? { ...it, section } : it)));
+  }
   function remove(i: number) {
     onChange(items.filter((_, idx) => idx !== i));
   }
@@ -275,66 +296,99 @@ function ListEditor({
     onChange(move(items, from, to));
   }
 
+  const norm = (s: string | null) => (s && s.trim() ? s.trim() : null);
+
   return (
     <div>
       <label className="block text-xs font-semibold text-stone-500 uppercase tracking-wide mb-2">
         {label}
       </label>
+      <p className="-mt-1 mb-2 text-xs text-stone-400">
+        Give a line a Section (e.g. &ldquo;For the sauce&rdquo;) to group it.
+        Adjacent lines sharing a section show together; leave blank for none.
+      </p>
       <div className="space-y-2">
-        {items.map((item, i) => (
-          <div key={item.id} className="flex items-start gap-2">
-            {numbered && (
-              <span className="mt-2 text-xs text-stone-400 w-4 text-right">
-                {i + 1}.
-              </span>
-            )}
-            {multiline ? (
-              <textarea
-                value={item.text}
-                onChange={(e) => update(i, e.target.value)}
-                placeholder={placeholder}
-                rows={2}
-                className="flex-1 border border-stone-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
-            ) : (
+        {items.map((item, i) => {
+          // The section input is shown on every line so a group can begin at any
+          // line; it's de-emphasized on lines that just continue the line above's
+          // section (same non-empty label) to cut visual noise.
+          const continues =
+            i > 0 && norm(items[i - 1].section) !== null &&
+            norm(items[i - 1].section) === norm(item.section);
+          return (
+            <div key={item.id}>
               <input
                 type="text"
-                value={item.text}
-                onChange={(e) => update(i, e.target.value)}
-                placeholder={placeholder}
-                className="flex-1 border border-stone-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                value={item.section ?? ""}
+                onChange={(e) => updateSection(i, e.target.value)}
+                placeholder="Section (optional)"
+                className={`mb-1 ml-6 block w-56 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-400 ${
+                  continues
+                    ? "border border-transparent text-stone-400 hover:border-stone-200"
+                    : "border border-stone-200 text-stone-600"
+                }`}
               />
-            )}
-            <div className="flex flex-col">
-              <button
-                onClick={() => reorder(i, i - 1)}
-                disabled={i === 0}
-                className="text-stone-400 hover:text-stone-700 disabled:opacity-30 text-xs leading-none px-1"
-                aria-label="Move up"
-              >
-                ▲
-              </button>
-              <button
-                onClick={() => reorder(i, i + 1)}
-                disabled={i === items.length - 1}
-                className="text-stone-400 hover:text-stone-700 disabled:opacity-30 text-xs leading-none px-1"
-                aria-label="Move down"
-              >
-                ▼
-              </button>
+              <div className="flex items-start gap-2">
+                {numbered && (
+                  <span className="mt-2 text-xs text-stone-400 w-4 text-right">
+                    {i + 1}.
+                  </span>
+                )}
+                {multiline ? (
+                  <textarea
+                    value={item.text}
+                    onChange={(e) => update(i, e.target.value)}
+                    placeholder={placeholder}
+                    rows={2}
+                    className="flex-1 border border-stone-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    value={item.text}
+                    onChange={(e) => update(i, e.target.value)}
+                    placeholder={placeholder}
+                    className="flex-1 border border-stone-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                )}
+                <div className="flex flex-col">
+                  <button
+                    onClick={() => reorder(i, i - 1)}
+                    disabled={i === 0}
+                    className="text-stone-400 hover:text-stone-700 disabled:opacity-30 text-xs leading-none px-1"
+                    aria-label="Move up"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    onClick={() => reorder(i, i + 1)}
+                    disabled={i === items.length - 1}
+                    className="text-stone-400 hover:text-stone-700 disabled:opacity-30 text-xs leading-none px-1"
+                    aria-label="Move down"
+                  >
+                    ▼
+                  </button>
+                </div>
+                <button
+                  onClick={() => remove(i)}
+                  className="mt-1.5 text-stone-400 hover:text-red-500 text-lg leading-none"
+                  aria-label={`Remove ${label} item`}
+                >
+                  ×
+                </button>
+              </div>
             </div>
-            <button
-              onClick={() => remove(i)}
-              className="mt-1.5 text-stone-400 hover:text-red-500 text-lg leading-none"
-              aria-label={`Remove ${label} item`}
-            >
-              ×
-            </button>
-          </div>
-        ))}
+          );
+        })}
       </div>
       <button
-        onClick={() => onChange([...items, newLine("")])}
+        onClick={() =>
+          onChange([
+            ...items,
+            // Inherit the last line's section so adds extend the current group.
+            newLine("", items.length ? items[items.length - 1].section : null),
+          ])
+        }
         className="mt-2 text-sm font-medium text-amber-700 hover:text-amber-800"
       >
         {addLabel}

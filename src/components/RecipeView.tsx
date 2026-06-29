@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import type { Recipe } from "@/types";
 import { addToMealPlan } from "@/lib/storage/localStorage";
 import { rescaleIngredientLine } from "@/lib/units/rescale";
+import { groupBySection, normalizeInstructions } from "@/lib/recipe/sections";
 
 interface Props {
   recipe: Recipe;
@@ -24,7 +25,9 @@ export default function RecipeView({ recipe, onCustomize }: Props) {
   const router = useRouter();
   const [added, setAdded] = useState(false);
   const [viewServings, setViewServings] = useState(recipe.base_servings);
-  const instructions = recipe.instructions ?? [];
+  const instructions = normalizeInstructions(recipe.instructions);
+  const ingredientGroups = groupBySection(recipe.ingredients, (i) => i.section);
+  const instructionGroups = groupBySection(instructions, (s) => s.section);
   const notes = recipe.notes?.trim();
 
   const scaleFactor = viewServings / recipe.base_servings;
@@ -142,15 +145,26 @@ export default function RecipeView({ recipe, onCustomize }: Props) {
               </span>
             )}
           </div>
-          <ul className="list-disc list-inside space-y-1 text-sm text-stone-700">
-            {recipe.ingredients.map((ing, i) => (
-              <li key={i}>
-                {isScaled
-                  ? rescaleIngredientLine(ing.raw_text, scaleFactor)
-                  : ing.raw_text}
-              </li>
+          <div className="space-y-4">
+            {ingredientGroups.map((group, gi) => (
+              <div key={gi}>
+                {group.section && (
+                  <h3 className="text-sm font-medium text-stone-800 mb-1">
+                    {group.section}
+                  </h3>
+                )}
+                <ul className="list-disc list-inside space-y-1 text-sm text-stone-700">
+                  {group.items.map((ing, i) => (
+                    <li key={i}>
+                      {isScaled
+                        ? rescaleIngredientLine(ing.raw_text, scaleFactor)
+                        : ing.raw_text}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ))}
-          </ul>
+          </div>
         </section>
 
         <section className="mt-6">
@@ -158,11 +172,22 @@ export default function RecipeView({ recipe, onCustomize }: Props) {
             Steps
           </h2>
           {instructions.length > 0 ? (
-            <ol className="list-decimal list-inside space-y-2 text-sm text-stone-700">
-              {instructions.map((step, i) => (
-                <li key={i}>{step}</li>
+            <div className="space-y-4">
+              {instructionGroups.map((group, gi) => (
+                <div key={gi}>
+                  {group.section && (
+                    <h3 className="text-sm font-medium text-stone-800 mb-1">
+                      {group.section}
+                    </h3>
+                  )}
+                  <ol className="list-decimal list-inside space-y-2 text-sm text-stone-700">
+                    {group.items.map((step, i) => (
+                      <li key={i}>{step.text}</li>
+                    ))}
+                  </ol>
+                </div>
               ))}
-            </ol>
+            </div>
           ) : (
             <p className="text-sm text-stone-400">
               No cooking steps saved for this recipe.

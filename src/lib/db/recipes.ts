@@ -8,8 +8,9 @@
 
 import { Prisma } from "@prisma/client";
 import type { Recipe as RecipeRow } from "@prisma/client";
-import type { CuisineSource, Recipe, RecipeIngredient } from "@/types";
+import type { CuisineSource, InstructionStep, Recipe, RecipeIngredient } from "@/types";
 import { normalizeUrl } from "@/lib/normalize-url";
+import { normalizeInstructions } from "@/lib/recipe/sections";
 import { prisma } from "./client";
 
 export { normalizeUrl };
@@ -53,9 +54,8 @@ export function rowToRecipe(row: RecipeRow): Recipe {
     ingredients: Array.isArray(row.ingredients)
       ? (row.ingredients as unknown as RecipeIngredient[])
       : [],
-    instructions: Array.isArray(row.instructions)
-      ? (row.instructions as unknown as string[])
-      : [],
+    // Coerce legacy string[] instructions into InstructionStep[].
+    instructions: normalizeInstructions(row.instructions),
     notes: row.notes ?? null,
     edited: row.edited ?? false,
   };
@@ -155,7 +155,7 @@ export interface RecipeUpdate {
   base_servings?: number;
   /** recipe_id is re-derived from the row id, so callers needn't supply it. */
   ingredients?: Array<Omit<RecipeIngredient, "recipe_id"> & { recipe_id?: string }>;
-  instructions?: string[];
+  instructions?: InstructionStep[];
   notes?: string | null;
 }
 

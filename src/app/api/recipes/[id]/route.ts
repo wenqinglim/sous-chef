@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { deleteRecipe, getRecipe, updateRecipe } from "@/lib/db/recipes";
+import { normalizeInstructions } from "@/lib/recipe/sections";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -18,14 +19,21 @@ const IngredientSchema = z.object({
   unit: z.string().nullable(),
   name: z.string(),
   canonical_id: z.string().nullable(),
+  section: z.string().nullable().optional(),
 });
+
+// Accept grouped step objects or plain strings (older clients) — coerced below.
+const InstructionSchema = z.union([
+  z.string(),
+  z.object({ text: z.string(), section: z.string().nullable().optional() }),
+]);
 
 const UpdateSchema = z
   .object({
     title: z.string().min(1),
     base_servings: z.number().int().positive(),
     ingredients: z.array(IngredientSchema),
-    instructions: z.array(z.string()),
+    instructions: z.array(InstructionSchema),
     notes: z.string().nullable(),
   })
   .partial();
@@ -75,9 +83,17 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
   }
 
   // updateRecipe re-derives each ingredient's recipe_id from the row id, so the
-  // validated body can go straight through.
+  // validated body can go straight through. Instructions are coerced to the
+  // InstructionStep shape (tolerating a legacy string[] payload).
+  const { instructions, ...rest } = parsed.data;
+  const patch = {
+    ...rest,
+    ...(instructions !== undefined
+      ? { instructions: normalizeInstructions(instructions) }
+      : {}),
+  };
   try {
-    const recipe = await updateRecipe(id, parsed.data);
+    const recipe = await updateRecipe(id, patch);
     if (!recipe) {
       return NextResponse.json({ error: "Recipe not found" }, { status: 404 });
     }
