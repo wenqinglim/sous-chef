@@ -27,6 +27,7 @@ import {
   extractFromInstagramWithAudio,
 } from "@/lib/extractors/instagram";
 import { safeFetch, BlockedUrlError } from "@/lib/extractors/safe-fetch";
+import { fetchPageHtmlViaScraper } from "@/lib/extractors/page-scraper";
 import { upsertRecipeByUrl } from "@/lib/db/recipes";
 
 export const maxDuration = 60;
@@ -42,6 +43,12 @@ const RequestSchema = z
   .refine((d) => d.url || d.text, {
     message: "Provide a recipe URL or pasted recipe text",
   });
+
+// HTTP statuses that mean "a bot-mitigation layer (Cloudflare etc.) blocked our
+// datacenter IP" rather than "the page is genuinely gone". For these we retry the
+// fetch through the residential scraper before giving up; a plain 404 wouldn't
+// benefit, so we don't waste a scraper run on it.
+const BOT_BLOCK_STATUSES = new Set([403, 429, 503]);
 
 const encoder = new TextEncoder();
 
@@ -136,7 +143,26 @@ export async function POST(request: NextRequest) {
       let html: string;
       try {
         const result = await safeFetch(pageUrl, {});
-        if (!result.ok) {
+        if (result.ok) {
+          html = result.text;
+        } else if (BOT_BLOCK_STATUSES.has(result.status)) {
+          // Cloudflare-style block of our datacenter IP — header spoofing can't
+          // clear it. Retry the fetch through the residential scraper.
+          onStatus(
+            `The site blocked our server (HTTP ${result.status}); retrying via scraper…`
+          );
+          const scraped = await fetchPageHtmlViaScraper(pageUrl);
+          if (scraped == null) {
+            emit(controller, {
+              type: "error",
+              error: `Failed to fetch URL: HTTP ${result.status}`,
+              status: 502,
+            });
+            controller.close();
+            return;
+          }
+          html = scraped;
+        } else {
           emit(controller, {
             type: "error",
             error: `Failed to fetch URL: HTTP ${result.status}`,
@@ -145,7 +171,6 @@ export async function POST(request: NextRequest) {
           controller.close();
           return;
         }
-        html = result.text;
       } catch (err) {
         if (err instanceof BlockedUrlError) {
           emit(controller, { type: "error", error: err.message, status: 400 });

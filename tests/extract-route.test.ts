@@ -17,17 +17,26 @@ jest.mock("@/lib/extractors/safe-fetch", () => ({
   safeFetch: jest.fn(),
   BlockedUrlError: class BlockedUrlError extends Error {},
 }));
+jest.mock("@/lib/extractors/page-scraper", () => ({
+  fetchPageHtmlViaScraper: jest.fn(),
+}));
 
 import { POST } from "@/app/api/extract/route";
 import { extractWithLlm } from "@/lib/extractors/llm-fallback";
 import { upsertRecipeByUrl } from "@/lib/db/recipes";
 import { safeFetch } from "@/lib/extractors/safe-fetch";
+import { fetchPageHtmlViaScraper } from "@/lib/extractors/page-scraper";
+import { extractFromSchemaOrg } from "@/lib/extractors/schema-org";
 import { extractFromInstagramWithAudio } from "@/lib/extractors/instagram";
 import type { Recipe } from "@/types";
 
 const mockedExtractWithLlm = extractWithLlm as jest.MockedFunction<typeof extractWithLlm>;
 const mockedUpsert = upsertRecipeByUrl as jest.MockedFunction<typeof upsertRecipeByUrl>;
 const mockedSafeFetch = safeFetch as jest.MockedFunction<typeof safeFetch>;
+const mockedScraper = fetchPageHtmlViaScraper as jest.MockedFunction<
+  typeof fetchPageHtmlViaScraper
+>;
+const mockedSchemaOrg = extractFromSchemaOrg as jest.MockedFunction<typeof extractFromSchemaOrg>;
 const mockedIgAudio = extractFromInstagramWithAudio as jest.MockedFunction<
   typeof extractFromInstagramWithAudio
 >;
@@ -114,5 +123,47 @@ describe("POST /api/extract — pasted text branch", () => {
     const err = events.find((e) => e.type === "error");
     expect(err).toMatchObject({ status: 422 });
     expect(mockedSafeFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/extract — website fetch blocked (Cloudflare 403)", () => {
+  const PAGE_URL = "https://natashaskitchen.com/smash-burger-recipe/";
+  const webRecipe: Recipe = { ...recipe, url: PAGE_URL };
+
+  test("retries via the scraper on a 403 and extracts the scraped HTML", async () => {
+    mockedSafeFetch.mockResolvedValue({ ok: false, status: 403, text: "", finalUrl: PAGE_URL });
+    mockedScraper.mockResolvedValue("<html>scraped</html>");
+    mockedSchemaOrg.mockReturnValue({ recipe: webRecipe });
+    mockedUpsert.mockResolvedValue(webRecipe);
+
+    const res = await POST(makeRequest({ url: PAGE_URL }));
+    const events = await readEvents(res);
+
+    expect(mockedScraper).toHaveBeenCalledWith(PAGE_URL);
+    expect(mockedSchemaOrg).toHaveBeenCalledWith("<html>scraped</html>", PAGE_URL);
+    const result = events.find((e) => e.type === "result");
+    expect(result).toMatchObject({ saved: true, recipe: { id: "rid" } });
+  });
+
+  test("errors with the original status when the scraper also yields nothing", async () => {
+    mockedSafeFetch.mockResolvedValue({ ok: false, status: 403, text: "", finalUrl: PAGE_URL });
+    mockedScraper.mockResolvedValue(null);
+
+    const res = await POST(makeRequest({ url: PAGE_URL }));
+    const events = await readEvents(res);
+
+    const err = events.find((e) => e.type === "error");
+    expect(err).toMatchObject({ status: 502, error: "Failed to fetch URL: HTTP 403" });
+  });
+
+  test("does not invoke the scraper on a plain 404", async () => {
+    mockedSafeFetch.mockResolvedValue({ ok: false, status: 404, text: "", finalUrl: PAGE_URL });
+
+    const res = await POST(makeRequest({ url: PAGE_URL }));
+    const events = await readEvents(res);
+
+    expect(mockedScraper).not.toHaveBeenCalled();
+    const err = events.find((e) => e.type === "error");
+    expect(err).toMatchObject({ status: 502, error: "Failed to fetch URL: HTTP 404" });
   });
 });

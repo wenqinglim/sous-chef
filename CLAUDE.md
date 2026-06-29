@@ -43,7 +43,7 @@ APIFY_TOKEN=apify_api_...       # Apify scraper — fetches Instagram reel capti
 npm install
 npm run db:deploy  # apply Prisma migrations (once per database)
 npm run dev        # http://localhost:3000
-npm test           # run all tests (369 passing; no DB needed — Prisma is mocked)
+npm test           # run all tests (381 passing; no DB needed — Prisma is mocked)
 npm run build      # production build: prisma generate → migrate deploy → next build
 ```
 
@@ -55,14 +55,15 @@ npm run build      # production build: prisma generate → migrate deploy → ne
 
 ## Test Coverage
 
-369 tests across 12 suites:
+381 tests across 13 suites:
 - `tests/units.test.ts` — unit conversions + ingredient text parser, incl. mixed/unicode ranges
 - `tests/normalization.test.ts` — registry lookup, alias matching, soy sauce disambiguation, messy-name robustness
 - `tests/extraction.test.ts` — schema.org extraction for all 4 target sites + `parseInstructions` for every JSON-LD instruction shape
 - `tests/instagram.test.ts` — Instagram URL detection (`isInstagramUrl`) and the recipe heuristic gate (`looksLikeRecipe`)
 - `tests/instagram-scraper.test.ts` — `fetchInstagramMedia` request shape + caption/videoUrl parsing + degradation (unconfigured token, empty/non-array/non-ok responses)
 - `tests/instagram-audio.test.ts` — host-validated `binaryFetch` (CDN-only, size cap, diagnostics), Whisper (mocked), and `extractFromInstagramWithAudio` orchestration (caption→audio fallback, caption+transcript merge, graceful degradation)
-- `tests/extract-route.test.ts` — `/api/extract` pasted-text branch: direct LLM extraction, url passthrough/synthesis, no fetching
+- `tests/extract-route.test.ts` — `/api/extract` pasted-text branch (direct LLM extraction, url passthrough/synthesis, no fetching) + website 403→scraper fallback (retry via scraper, error passthrough, no scraper on 404)
+- `tests/page-scraper.test.ts` — `fetchPageHtmlViaScraper` request shape (residential proxy, saveHtml) + HTML parsing + degradation (unconfigured token, blank/empty/non-array/non-ok responses)
 - `tests/llm-fallback.test.ts` — `extractJsonText` unwraps markdown-fenced / prose-wrapped LLM JSON responses
 - `tests/rescale.test.ts` — ingredient quantity rescaling by servings
 - `tests/pipeline.test.ts` — aggregate, purchase planning, full derive(), purchase-unit + slice→weight + metric-output regressions
@@ -95,6 +96,9 @@ URL
 [1] Extraction        URL → Recipe
       Primary: schema.org JSON-LD (cheerio)
       Fallback: Claude API (raw HTML → structured JSON)
+      Blocked-site fallback: if the direct fetch is 403/429/503'd by
+        bot mitigation (Cloudflare), re-fetch the HTML via the residential
+        scraper (Apify) — see "Bot-blocked recipe sites" below
  │
  ▼
 [2] Normalization     raw ingredient text → canonical ingredient
@@ -197,6 +201,27 @@ All four sites have clean schema.org JSON-LD markup — Claude fallback should r
 | The Woks of Life | thewoksoflife.com | Imperial | Chinese family cooking; cuisine_source=asian |
 | Hot Thai Kitchen | hot-thai-kitchen.com | Metric | Thai; sometimes Thai script in ingredient parens |
 | Made With Lau | madewithlau.com | Mixed | Cantonese; sometimes Chinese characters in parens |
+
+### Bot-blocked recipe sites (Cloudflare 403)
+
+Some recipe sites (e.g. **natashaskitchen.com**) sit behind Cloudflare Bot
+Management, which scores each request on its **TLS/JA3 fingerprint + IP
+reputation**, not just its headers. Node's `fetch` has a non-browser TLS
+fingerprint and Vercel runs on datacenter IPs, so `safeFetch` gets a `403` no
+matter how complete the browser header set is. `safe-fetch.ts`'s
+`BROWSER_FINGERPRINT_HEADERS` are necessary for header-only sniffers but **cannot
+clear a TLS+IP challenge** — header spoofing alone is a dead end for these sites
+(an earlier header-only fix, #41, did not work).
+
+The fix mirrors the Instagram playbook: when the direct fetch returns a
+bot-mitigation status (`403`/`429`/`503`), `/api/extract` re-fetches the page HTML
+via `fetchPageHtmlViaScraper` (`src/lib/extractors/page-scraper.ts`), which runs
+the Apify **Website Content Crawler** in a real browser behind a **residential
+proxy** and returns the rendered HTML. That HTML then flows through the normal
+schema.org → LLM extraction path unchanged. Uses the same `APIFY_TOKEN` as the
+Instagram scraper; returns `null` (→ clear error + paste fallback) when
+unconfigured or the scrape yields nothing. A plain `404` does **not** trigger the
+scraper (nothing to recover).
 
 ### Instagram reels
 
@@ -328,3 +353,4 @@ user copies out never contains oz or lb. Enforced by a regression test in
 - [x] Task 16: Instagram reel import (caption extraction + recipe heuristic gate)
 - [x] Task 17: Instagram audio fallback (Groq Whisper transcription)
 - [x] Task 18: Scraper-based reel fetch (`APIFY_TOKEN`) + manual caption-paste fallback; drop personal `IG_SESSIONID`
+- [x] Task 19: Residential-scraper HTML fallback for bot-blocked recipe sites (Cloudflare 403 → Apify Website Content Crawler)
