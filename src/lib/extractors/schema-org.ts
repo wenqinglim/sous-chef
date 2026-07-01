@@ -240,7 +240,7 @@ export function parseInstructions(
  *     `.wprm-recipe-ingredient-group` per group, header in
  *     `.wprm-recipe-ingredient-group-name`, items in `.wprm-recipe-ingredient`.
  *   - Tasty Recipes (The Woks of Life): heading tags interleaved with `<ul>`
- *     inside `.tasty-recipes-ingredients`.
+ *     inside `.tasty-recipes-ingredients-body`.
  * Returns [] when no group markup is found (→ caller leaves ingredients
  * ungrouped). Only groups with at least one item are returned.
  */
@@ -265,8 +265,14 @@ export function extractIngredientGroups(
   });
   if (wprmGroups.length > 0) return wprmGroups;
 
-  // Tasty Recipes — walk children in document order, headings open a new group
-  const tastyContainer = $(".tasty-recipes-ingredients").first();
+  // Tasty Recipes — walk children in document order, headings open a new group.
+  // Scope to the items wrapper (`-body`), not the outer container, so the
+  // plugin's own generic "Ingredients" title + scale-button heading don't leak
+  // in as a section. Fall back to the outer container for markup variants that
+  // lack a `-body` wrapper.
+  const tastyBody = $(".tasty-recipes-ingredients-body").first();
+  const tastyContainer =
+    tastyBody.length > 0 ? tastyBody : $(".tasty-recipes-ingredients").first();
   if (tastyContainer.length > 0) {
     const groups: Array<{ name: string | null; items: string[] }> = [];
     let current: { name: string | null; items: string[] } | null = null;
@@ -288,19 +294,40 @@ export function extractIngredientGroups(
           current.items.push(text);
         }
       });
-    const nonEmpty = groups.filter((g) => g.items.length > 0);
-    // Only meaningful if at least one group carries a real label.
-    if (nonEmpty.some((g) => g.name)) return nonEmpty;
+    // Generic plugin titles ("Ingredients", "Method", …) aren't real sub-group
+    // labels — null them so a recipe without sub-groups stays ungrouped, while a
+    // genuinely grouped recipe with a leaked title keeps only its real groups.
+    const cleaned = groups
+      .filter((g) => g.items.length > 0)
+      .map((g) =>
+        g.name && isGenericGroupLabel(g.name) ? { ...g, name: null } : g
+      );
+    // Only meaningful if at least one group still carries a real label.
+    if (cleaned.some((g) => g.name)) return cleaned;
   }
 
   return [];
 }
 
+/** Generic plugin section titles that should not be treated as group labels. */
+function isGenericGroupLabel(name: string): boolean {
+  return /^(ingredients?|instructions?|directions?|method)$/i.test(name.trim());
+}
+
 /**
  * Assign a `section` label to each `recipeIngredient` entry from HTML groups.
- * Reliable case: the flat JSON-LD list and the HTML groups share order and
- * count, so we map by index. Otherwise we fall back to matching on normalized
- * ingredient text, and leave anything unmatched ungrouped (null).
+ *
+ * Resolution order, chosen so a count match alone is never blindly trusted yet
+ * the common same-source case still works even when the HTML text is formatted
+ * slightly differently from the JSON-LD:
+ *   1. Counts equal AND every pair matches by normalized text in order → map by
+ *      index (fast; also correct when an ingredient line repeats across groups).
+ *   2. Else, if every raw ingredient resolves in the normalized text map (a pure
+ *      reorder — text still corresponds) → use the text-matched labels.
+ *   3. Else, if counts still equal → fall back to index order (texts differ only
+ *      in formatting; index remains the best signal).
+ *   4. Else (counts differ, no full text match) → text-match best-effort, null
+ *      for anything unmatched.
  *
  * @param rawIngredients  the JSON-LD recipeIngredient strings (pre-clean)
  * @param groups          output of extractIngredientGroups
@@ -318,17 +345,31 @@ export function assignIngredientSections(
     for (const text of g.items) flat.push({ name: g.name, text });
   }
 
-  // Index alignment — same source, same order is the common, reliable case.
-  if (flat.length === rawIngredients.length) {
+  const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+  const sameCount = flat.length === rawIngredients.length;
+
+  // 1. Index alignment, but only when the texts actually line up in order.
+  if (sameCount && flat.every((f, i) => norm(f.text) === norm(rawIngredients[i]))) {
     return flat.map((f) => f.name);
   }
 
-  // Fallback: match by normalized text.
-  const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+  // Normalized text map (first occurrence wins on duplicates).
   const byText = new Map<string, string | null>();
   for (const f of flat) {
     if (!byText.has(norm(f.text))) byText.set(norm(f.text), f.name);
   }
+
+  // 2. Pure reorder: every ingredient corresponds to a grouped item by text.
+  if (rawIngredients.every((raw) => byText.has(norm(raw)))) {
+    return rawIngredients.map((raw) => byText.get(norm(raw)) ?? null);
+  }
+
+  // 3. Same count but text differs (formatting) — trust index order.
+  if (sameCount) {
+    return flat.map((f) => f.name);
+  }
+
+  // 4. Counts differ — best-effort text match, ungrouped otherwise.
   return rawIngredients.map((raw) => byText.get(norm(raw)) ?? null);
 }
 

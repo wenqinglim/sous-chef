@@ -487,16 +487,46 @@ describe("extractIngredientGroups", () => {
     ]);
   });
 
-  test("Tasty Recipes headings interleaved with list items", () => {
+  test("Tasty Recipes sub-groups, ignoring the plugin's generic title", () => {
+    // Real Tasty markup: a generic "Ingredients" title sits in the header, the
+    // actual groups live in `-body`. The title must NOT become a section.
     const html = `
       <div class="tasty-recipes-ingredients">
-        <h4>Marinade</h4>
-        <ul><li>1 tbsp shaoxing wine</li><li>1 tsp cornstarch</li></ul>
+        <div class="tasty-recipes-ingredients-header"><h3>Ingredients</h3></div>
+        <div class="tasty-recipes-ingredients-body">
+          <h4>Marinade</h4>
+          <ul><li>1 tbsp shaoxing wine</li><li>1 tsp cornstarch</li></ul>
+          <h4>Sauce</h4>
+          <ul><li>2 tbsp soy sauce</li></ul>
+        </div>
+      </div>`;
+    expect(extractIngredientGroups(cheerio.load(html))).toEqual([
+      { name: "Marinade", items: ["1 tbsp shaoxing wine", "1 tsp cornstarch"] },
+      { name: "Sauce", items: ["2 tbsp soy sauce"] },
+    ]);
+  });
+
+  test("Tasty Recipes with no real sub-groups → [] (no spurious 'Ingredients')", () => {
+    const html = `
+      <div class="tasty-recipes-ingredients">
+        <div class="tasty-recipes-ingredients-header"><h3>Ingredients</h3></div>
+        <div class="tasty-recipes-ingredients-body">
+          <ul><li>1 egg</li><li>2 cups flour</li></ul>
+        </div>
+      </div>`;
+    expect(extractIngredientGroups(cheerio.load(html))).toEqual([]);
+  });
+
+  test("a generic label leaking inside -body is nulled, real groups kept", () => {
+    const html = `
+      <div class="tasty-recipes-ingredients-body">
+        <h4>Ingredients</h4>
+        <ul><li>1 egg</li></ul>
         <h4>Sauce</h4>
         <ul><li>2 tbsp soy sauce</li></ul>
       </div>`;
     expect(extractIngredientGroups(cheerio.load(html))).toEqual([
-      { name: "Marinade", items: ["1 tbsp shaoxing wine", "1 tsp cornstarch"] },
+      { name: null, items: ["1 egg"] },
       { name: "Sauce", items: ["2 tbsp soy sauce"] },
     ]);
   });
@@ -536,6 +566,32 @@ describe("assignIngredientSections", () => {
       "For the sauce",
       "For the sauce",
       null,
+    ]);
+  });
+
+  test("reorder with matching counts → follows text, not index", () => {
+    // HTML order differs from JSON-LD order but every text still corresponds;
+    // index alignment would mislabel, so text-match must win.
+    const raw = ["500 g beef", "2 tbsp soy sauce", "1 tsp sesame oil"];
+    expect(assignIngredientSections(raw, groups)).toEqual([
+      "For the stir fry",
+      "For the sauce",
+      "For the sauce",
+    ]);
+  });
+
+  test("same count, formatting differs → trusts index order", () => {
+    // Same order but JSON-LD phrases units differently from the HTML; text-match
+    // can't resolve, so index order is the best signal and sectioning is kept.
+    const raw = [
+      "2 tablespoons soy sauce",
+      "1 teaspoon sesame oil",
+      "500 grams beef",
+    ];
+    expect(assignIngredientSections(raw, groups)).toEqual([
+      "For the sauce",
+      "For the sauce",
+      "For the stir fry",
     ]);
   });
 

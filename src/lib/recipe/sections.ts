@@ -67,14 +67,3 @@ export function groupBySection<T>(
   }
   return groups;
 }
-
-/** True when any item carries a non-empty section label. */
-export function hasSections<T>(
-  items: T[],
-  getSection: (item: T) => string | null | undefined
-): boolean {
-  return items.some((item) => {
-    const raw = getSection(item);
-    return typeof raw === "string" && raw.trim().length > 0;
-  });
-}

@@ -43,7 +43,7 @@ APIFY_TOKEN=apify_api_...       # Apify scraper — fetches Instagram reel capti
 npm install
 npm run db:deploy  # apply Prisma migrations (once per database)
 npm run dev        # http://localhost:3000
-npm test           # run all tests (405 passing; no DB needed — Prisma is mocked)
+npm test           # run all tests (407 passing; no DB needed — Prisma is mocked)
 npm run build      # production build: prisma generate → migrate deploy → next build
 ```
 
@@ -55,7 +55,7 @@ npm run build      # production build: prisma generate → migrate deploy → ne
 
 ## Test Coverage
 
-405 tests across 14 suites:
+407 tests across 14 suites:
 - `tests/units.test.ts` — unit conversions + ingredient text parser, incl. mixed/unicode ranges
 - `tests/normalization.test.ts` — registry lookup, alias matching, soy sauce disambiguation, messy-name robustness
 - `tests/extraction.test.ts` — schema.org extraction for all 4 target sites + `parseInstructions` for every JSON-LD instruction shape (incl. `HowToSection` → step section labels) + `extractIngredientGroups`/`assignIngredientSections` (WPRM + Tasty Recipes ingredient-group HTML → ingredient sections)

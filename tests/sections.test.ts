@@ -1,8 +1,4 @@
-import {
-  groupBySection,
-  hasSections,
-  normalizeInstructions,
-} from "@/lib/recipe/sections";
+import { groupBySection, normalizeInstructions } from "@/lib/recipe/sections";
 
 describe("normalizeInstructions", () => {
   test("coerces legacy string[] into InstructionStep[]", () => {
@@ -82,18 +78,5 @@ describe("groupBySection", () => {
     expect(groupBySection(items, (x) => x.section)).toEqual([
       { section: null, items },
     ]);
-  });
-});
-
-describe("hasSections", () => {
-  test("true when any item carries a non-empty label", () => {
-    expect(
-      hasSections([{ section: null }, { section: "Sauce" }], (x) => x.section)
-    ).toBe(true);
-  });
-  test("false when none do", () => {
-    expect(
-      hasSections([{ section: null }, { section: "  " }], (x) => x.section)
-    ).toBe(false);
   });
 });
