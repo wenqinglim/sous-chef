@@ -59,7 +59,7 @@ function makeRecipe(overrides: Partial<Recipe> = {}): Recipe {
         canonical_id: null,
       },
     ],
-    instructions: ["Chop the garlic."],
+    instructions: [{ text: "Chop the garlic.", section: null }],
     ...overrides,
   };
 }
@@ -118,7 +118,8 @@ describe("rowToRecipe", () => {
           canonical_id: null,
         },
       ],
-      instructions: ["Chop the garlic."],
+      // Legacy string[] instructions in the row coerce to InstructionStep[].
+      instructions: [{ text: "Chop the garlic.", section: null }],
       notes: null,
       edited: false,
     });
@@ -127,6 +128,39 @@ describe("rowToRecipe", () => {
   test("tolerates non-array instructions (pre-feature rows) → []", () => {
     const recipe = rowToRecipe(makeRow({ instructions: null }) as never);
     expect(recipe.instructions).toEqual([]);
+  });
+
+  test("coerces legacy string[] instructions into InstructionStep[]", () => {
+    const recipe = rowToRecipe(
+      makeRow({ instructions: ["Step one.", "Step two."] }) as never
+    );
+    expect(recipe.instructions).toEqual([
+      { text: "Step one.", section: null },
+      { text: "Step two.", section: null },
+    ]);
+  });
+
+  test("preserves section labels on instructions and ingredients", () => {
+    const recipe = rowToRecipe(
+      makeRow({
+        instructions: [{ text: "Whisk the sauce.", section: "Sauce" }],
+        ingredients: [
+          {
+            recipe_id: "row-id",
+            raw_text: "2 tbsp soy sauce",
+            quantity: 2,
+            unit: "tbsp",
+            name: "soy sauce",
+            canonical_id: null,
+            section: "Sauce",
+          },
+        ],
+      }) as never
+    );
+    expect(recipe.instructions).toEqual([
+      { text: "Whisk the sauce.", section: "Sauce" },
+    ]);
+    expect(recipe.ingredients[0].section).toBe("Sauce");
   });
 
   test("tolerates non-array ingredients → []", () => {
@@ -303,6 +337,39 @@ describe("updateRecipe", () => {
     });
 
     expect(result?.ingredients[0].recipe_id).toBe("row-id");
+  });
+
+  test("round-trips section labels on ingredients and instructions", async () => {
+    mockRecipe.update.mockImplementation(
+      ({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve(
+          makeRow({
+            id: "row-id",
+            ingredients: data.ingredients,
+            instructions: data.instructions,
+          })
+        )
+    );
+
+    const result = await updateRecipe("row-id", {
+      ingredients: [
+        {
+          recipe_id: "row-id",
+          raw_text: "2 tbsp soy sauce",
+          quantity: 2,
+          unit: "tbsp",
+          name: "soy sauce",
+          canonical_id: null,
+          section: "Sauce",
+        },
+      ],
+      instructions: [{ text: "Whisk the sauce.", section: "Sauce" }],
+    });
+
+    expect(result?.ingredients[0].section).toBe("Sauce");
+    expect(result?.instructions).toEqual([
+      { text: "Whisk the sauce.", section: "Sauce" },
+    ]);
   });
 
   test("returns null when the record does not exist (P2025)", async () => {

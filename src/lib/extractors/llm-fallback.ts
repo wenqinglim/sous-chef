@@ -11,6 +11,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import type { Recipe, RecipeIngredient } from "@/types";
 import { inferCuisineSource } from "@/lib/normalizers/lookup";
+import { normalizeInstructions } from "@/lib/recipe/sections";
 import { v4 as uuidv4 } from "uuid";
 
 const client = new Anthropic();
@@ -22,13 +23,20 @@ const LlmIngredientSchema = z.object({
   quantity: z.number().nullable(),
   unit: z.string().nullable(),
   name: z.string(),
+  section: z.string().nullable().optional(),
 });
+
+// Tolerate the model returning either grouped step objects or plain strings.
+const LlmInstructionSchema = z.union([
+  z.string(),
+  z.object({ text: z.string(), section: z.string().nullable().optional() }),
+]);
 
 const LlmRecipeSchema = z.object({
   title: z.string(),
   base_servings: z.number().int().positive(),
   ingredients: z.array(LlmIngredientSchema),
-  instructions: z.array(z.string()).default([]),
+  instructions: z.array(LlmInstructionSchema).default([]),
 });
 
 type LlmRecipe = z.infer<typeof LlmRecipeSchema>;
@@ -46,12 +54,13 @@ Return ONLY valid JSON with this exact schema (no markdown, no extra text):
       "raw_text": "2 cups all-purpose flour",
       "quantity": 2,
       "unit": "cups",
-      "name": "all-purpose flour"
+      "name": "all-purpose flour",
+      "section": null
     }
   ],
   "instructions": [
-    "Preheat the oven to 180°C.",
-    "Mix the flour and sugar in a large bowl."
+    { "text": "Preheat the oven to 180°C.", "section": null },
+    { "text": "Mix the flour and sugar in a large bowl.", "section": null }
   ]
 }
 
@@ -63,8 +72,12 @@ Rules:
   - quantity: numeric amount (null if "to taste" or unspecified)
   - unit: unit of measure lowercase (null if count/unspecified)
   - name: ONLY the ingredient name — no quantity, unit, or prep notes
-- instructions: one string per cooking step, in order
-  - Do NOT include step numbers in the text
+  - section: the group/subheading this ingredient falls under, e.g. "For the sauce"
+    or "Marinade". Use null if the recipe has no ingredient groups.
+- instructions: one object per cooking step, in order
+  - text: the step text. Do NOT include step numbers.
+  - section: the group/subheading this step falls under (e.g. "Make the sauce").
+    Use null if the recipe has no step groups.
   - Use [] if no cooking steps are found`;
 
 // ─── Main function ────────────────────────────────────────────────────────────
@@ -176,6 +189,7 @@ export async function extractWithLlm(
     unit: ing.unit,
     name: ing.name,
     canonical_id: null,
+    section: ing.section?.trim() ? ing.section.trim() : null,
   }));
 
   const recipe: Recipe = {
@@ -186,7 +200,7 @@ export async function extractWithLlm(
     parsed_at: new Date().toISOString(),
     cuisine_source: inferCuisineSource(url),
     ingredients,
-    instructions: parsed.instructions,
+    instructions: normalizeInstructions(parsed.instructions),
   };
 
   return { recipe };

@@ -1,9 +1,12 @@
 import * as fs from "fs";
 import * as path from "path";
+import * as cheerio from "cheerio";
 import {
+  assignIngredientSections,
   cleanIngredientText,
   decodeHtmlEntities,
   extractFromSchemaOrg,
+  extractIngredientGroups,
   parseInstructions,
   parseServings,
 } from "@/lib/extractors/schema-org";
@@ -39,10 +42,13 @@ describe("parseServings", () => {
 // ─── parseInstructions ────────────────────────────────────────────────────────
 
 describe("parseInstructions", () => {
+  // Steps that aren't inside a HowToSection carry section: null.
+  const plain = (text: string) => ({ text, section: null });
+
   test("plain string array used directly", () => {
     expect(parseInstructions(["Boil water.", "Add pasta."])).toEqual([
-      "Boil water.",
-      "Add pasta.",
+      plain("Boil water."),
+      plain("Add pasta."),
     ]);
   });
 
@@ -52,16 +58,16 @@ describe("parseInstructions", () => {
         { "@type": "HowToStep", text: "Chop the onion." },
         { "@type": "HowToStep", text: "Fry until golden." },
       ])
-    ).toEqual(["Chop the onion.", "Fry until golden."]);
+    ).toEqual([plain("Chop the onion."), plain("Fry until golden.")]);
   });
 
   test("HowToStep without text falls back to name", () => {
     expect(
       parseInstructions([{ "@type": "HowToStep", name: "Preheat the oven." }])
-    ).toEqual(["Preheat the oven."]);
+    ).toEqual([plain("Preheat the oven.")]);
   });
 
-  test("HowToSection with itemListElement is flattened", () => {
+  test("HowToSection name is captured as the step section", () => {
     expect(
       parseInstructions([
         {
@@ -81,17 +87,31 @@ describe("parseInstructions", () => {
         },
       ])
     ).toEqual([
-      "Whisk the sauce ingredients.",
-      "Stir fry the beef.",
-      "Add the sauce.",
+      { text: "Whisk the sauce ingredients.", section: "For the sauce" },
+      { text: "Stir fry the beef.", section: "For the stir fry" },
+      { text: "Add the sauce.", section: "For the stir fry" },
     ]);
   });
 
-  test("nested sections flatten recursively", () => {
+  test("unnamed HowToSection leaves steps ungrouped", () => {
     expect(
       parseInstructions([
         {
           "@type": "HowToSection",
+          itemListElement: [
+            { "@type": "HowToStep", text: "Stir fry the beef." },
+          ],
+        },
+      ])
+    ).toEqual([plain("Stir fry the beef.")]);
+  });
+
+  test("nested sections inherit the nearest named section", () => {
+    expect(
+      parseInstructions([
+        {
+          "@type": "HowToSection",
+          name: "Outer",
           itemListElement: [
             {
               "@type": "HowToSection",
@@ -100,21 +120,21 @@ describe("parseInstructions", () => {
           ],
         },
       ])
-    ).toEqual(["Inner step."]);
+    ).toEqual([{ text: "Inner step.", section: "Outer" }]);
   });
 
   test("single plain string split on newlines", () => {
     expect(parseInstructions("Step one.\nStep two.\n\nStep three.")).toEqual([
-      "Step one.",
-      "Step two.",
-      "Step three.",
+      plain("Step one."),
+      plain("Step two."),
+      plain("Step three."),
     ]);
   });
 
   test("HTML tags stripped from step text", () => {
     expect(
       parseInstructions([{ "@type": "HowToStep", text: "<p>Mix <b>well</b>.</p>" }])
-    ).toEqual(["Mix well."]);
+    ).toEqual([plain("Mix well.")]);
   });
 
   test("undefined/null → []", () => {
@@ -125,19 +145,23 @@ describe("parseInstructions", () => {
   test("lone unwrapped HowToStep object", () => {
     expect(
       parseInstructions({ "@type": "HowToStep", text: "Only step." })
-    ).toEqual(["Only step."]);
+    ).toEqual([plain("Only step.")]);
   });
 
   test("lone unwrapped HowToSection object", () => {
     expect(
       parseInstructions({
         "@type": "HowToSection",
+        name: "Method",
         itemListElement: [
           { "@type": "HowToStep", text: "First." },
           { "@type": "HowToStep", text: "Second." },
         ],
       })
-    ).toEqual(["First.", "Second."]);
+    ).toEqual([
+      { text: "First.", section: "Method" },
+      { text: "Second.", section: "Method" },
+    ]);
   });
 
   test("malformed entries skipped, valid ones kept", () => {
@@ -147,7 +171,7 @@ describe("parseInstructions", () => {
         "",
         { "@type": "HowToStep", text: "Real step." },
       ])
-    ).toEqual(["Real step."]);
+    ).toEqual([plain("Real step.")]);
   });
 });
 
@@ -275,8 +299,8 @@ describe("RecipeTin Eats — Beef Stir Fry", () => {
   test("extracts both HowToStep instructions", () => {
     const { recipe } = extractFromSchemaOrg(html, url);
     expect(recipe!.instructions).toEqual([
-      "Marinate beef with soy sauce and cornstarch for 15 minutes.",
-      "Heat oil in wok over high heat. Stir fry beef until browned.",
+      { text: "Marinate beef with soy sauce and cornstarch for 15 minutes.", section: null },
+      { text: "Heat oil in wok over high heat. Stir fry beef until browned.", section: null },
     ]);
   });
 });
@@ -311,7 +335,7 @@ describe("Woks of Life — Mapo Tofu", () => {
 
   test("extracts instructions", () => {
     expect(extractFromSchemaOrg(html, url).recipe!.instructions).toEqual([
-      "Bring a pot of water to a boil and blanch tofu for 1 minute.",
+      { text: "Bring a pot of water to a boil and blanch tofu for 1 minute.", section: null },
     ]);
   });
 });
@@ -353,7 +377,7 @@ describe("Hot Thai Kitchen — Pad Thai (uses @graph)", () => {
 
   test("extracts instructions from @graph recipe", () => {
     expect(extractFromSchemaOrg(html, url).recipe!.instructions).toEqual([
-      "Soak rice noodles in room temperature water for 30 minutes.",
+      { text: "Soak rice noodles in room temperature water for 30 minutes.", section: null },
     ]);
   });
 });
@@ -396,7 +420,7 @@ describe("Made With Lau — Cantonese Steamed Fish", () => {
 
   test("extracts instructions", () => {
     expect(extractFromSchemaOrg(html, url).recipe!.instructions).toEqual([
-      "Score the fish on both sides with 3-4 diagonal cuts.",
+      { text: "Score the fish on both sides with 3-4 diagonal cuts.", section: null },
     ]);
   });
 });
@@ -434,5 +458,188 @@ describe("Error cases", () => {
     const r = extractFromSchemaOrg(html, "https://example.com");
     expect(r.recipe).not.toBeNull();
     expect(r.recipe!.instructions).toEqual([]);
+  });
+});
+
+// ─── Ingredient groups (HTML, since JSON-LD recipeIngredient is flat) ──────────
+
+describe("extractIngredientGroups", () => {
+  test("WP Recipe Maker group markup", () => {
+    const html = `
+      <div class="wprm-recipe-ingredients-container">
+        <div class="wprm-recipe-ingredient-group">
+          <h4 class="wprm-recipe-ingredient-group-name">For the sauce</h4>
+          <ul>
+            <li class="wprm-recipe-ingredient">2 tbsp soy sauce</li>
+            <li class="wprm-recipe-ingredient">1 tsp sesame oil</li>
+          </ul>
+        </div>
+        <div class="wprm-recipe-ingredient-group">
+          <h4 class="wprm-recipe-ingredient-group-name">For the stir fry</h4>
+          <ul>
+            <li class="wprm-recipe-ingredient">500 g beef</li>
+          </ul>
+        </div>
+      </div>`;
+    expect(extractIngredientGroups(cheerio.load(html))).toEqual([
+      { name: "For the sauce", items: ["2 tbsp soy sauce", "1 tsp sesame oil"] },
+      { name: "For the stir fry", items: ["500 g beef"] },
+    ]);
+  });
+
+  test("Tasty Recipes sub-groups, ignoring the plugin's generic title", () => {
+    // Real Tasty markup: a generic "Ingredients" title sits in the header, the
+    // actual groups live in `-body`. The title must NOT become a section.
+    const html = `
+      <div class="tasty-recipes-ingredients">
+        <div class="tasty-recipes-ingredients-header"><h3>Ingredients</h3></div>
+        <div class="tasty-recipes-ingredients-body">
+          <h4>Marinade</h4>
+          <ul><li>1 tbsp shaoxing wine</li><li>1 tsp cornstarch</li></ul>
+          <h4>Sauce</h4>
+          <ul><li>2 tbsp soy sauce</li></ul>
+        </div>
+      </div>`;
+    expect(extractIngredientGroups(cheerio.load(html))).toEqual([
+      { name: "Marinade", items: ["1 tbsp shaoxing wine", "1 tsp cornstarch"] },
+      { name: "Sauce", items: ["2 tbsp soy sauce"] },
+    ]);
+  });
+
+  test("Tasty Recipes with no real sub-groups → [] (no spurious 'Ingredients')", () => {
+    const html = `
+      <div class="tasty-recipes-ingredients">
+        <div class="tasty-recipes-ingredients-header"><h3>Ingredients</h3></div>
+        <div class="tasty-recipes-ingredients-body">
+          <ul><li>1 egg</li><li>2 cups flour</li></ul>
+        </div>
+      </div>`;
+    expect(extractIngredientGroups(cheerio.load(html))).toEqual([]);
+  });
+
+  test("a generic label leaking inside -body is nulled, real groups kept", () => {
+    const html = `
+      <div class="tasty-recipes-ingredients-body">
+        <h4>Ingredients</h4>
+        <ul><li>1 egg</li></ul>
+        <h4>Sauce</h4>
+        <ul><li>2 tbsp soy sauce</li></ul>
+      </div>`;
+    expect(extractIngredientGroups(cheerio.load(html))).toEqual([
+      { name: null, items: ["1 egg"] },
+      { name: "Sauce", items: ["2 tbsp soy sauce"] },
+    ]);
+  });
+
+  test("no group markup → []", () => {
+    const html = `<ul><li>1 egg</li><li>2 cups flour</li></ul>`;
+    expect(extractIngredientGroups(cheerio.load(html))).toEqual([]);
+  });
+});
+
+describe("assignIngredientSections", () => {
+  const groups = [
+    { name: "For the sauce", items: ["2 tbsp soy sauce", "1 tsp sesame oil"] },
+    { name: "For the stir fry", items: ["500 g beef"] },
+  ];
+
+  test("index alignment when counts match", () => {
+    const raw = ["2 tbsp soy sauce", "1 tsp sesame oil", "500 g beef"];
+    expect(assignIngredientSections(raw, groups)).toEqual([
+      "For the sauce",
+      "For the sauce",
+      "For the stir fry",
+    ]);
+  });
+
+  test("text-match fallback when counts differ", () => {
+    // 4 JSON-LD lines vs 3 grouped items → index alignment is off, fall back to
+    // matching by text; the extra line ("salt") isn't in any group → null.
+    const raw = [
+      "500 g beef",
+      "2 tbsp soy sauce",
+      "1 tsp sesame oil",
+      "1 pinch salt",
+    ];
+    expect(assignIngredientSections(raw, groups)).toEqual([
+      "For the stir fry",
+      "For the sauce",
+      "For the sauce",
+      null,
+    ]);
+  });
+
+  test("reorder with matching counts → follows text, not index", () => {
+    // HTML order differs from JSON-LD order but every text still corresponds;
+    // index alignment would mislabel, so text-match must win.
+    const raw = ["500 g beef", "2 tbsp soy sauce", "1 tsp sesame oil"];
+    expect(assignIngredientSections(raw, groups)).toEqual([
+      "For the stir fry",
+      "For the sauce",
+      "For the sauce",
+    ]);
+  });
+
+  test("same count, formatting differs → trusts index order", () => {
+    // Same order but JSON-LD phrases units differently from the HTML; text-match
+    // can't resolve, so index order is the best signal and sectioning is kept.
+    const raw = [
+      "2 tablespoons soy sauce",
+      "1 teaspoon sesame oil",
+      "500 grams beef",
+    ];
+    expect(assignIngredientSections(raw, groups)).toEqual([
+      "For the sauce",
+      "For the sauce",
+      "For the stir fry",
+    ]);
+  });
+
+  test("no groups → all null", () => {
+    expect(assignIngredientSections(["1 egg", "2 cups flour"], [])).toEqual([
+      null,
+      null,
+    ]);
+  });
+});
+
+describe("extractFromSchemaOrg — ingredient sections from HTML groups", () => {
+  test("assigns sections by index from WPRM markup alongside JSON-LD", () => {
+    const html = `
+      <script type="application/ld+json">{
+        "@type": "Recipe",
+        "name": "Beef Stir Fry",
+        "recipeYield": "4",
+        "recipeIngredient": ["2 tbsp soy sauce", "1 tsp sesame oil", "500 g beef"],
+        "recipeInstructions": [{ "@type": "HowToStep", "text": "Cook it." }]
+      }</script>
+      <div class="wprm-recipe-ingredient-group">
+        <h4 class="wprm-recipe-ingredient-group-name">For the sauce</h4>
+        <ul>
+          <li class="wprm-recipe-ingredient">2 tbsp soy sauce</li>
+          <li class="wprm-recipe-ingredient">1 tsp sesame oil</li>
+        </ul>
+      </div>
+      <div class="wprm-recipe-ingredient-group">
+        <h4 class="wprm-recipe-ingredient-group-name">For the stir fry</h4>
+        <ul><li class="wprm-recipe-ingredient">500 g beef</li></ul>
+      </div>`;
+    const { recipe } = extractFromSchemaOrg(html, "https://example.com/beef");
+    expect(recipe!.ingredients.map((i) => i.section)).toEqual([
+      "For the sauce",
+      "For the sauce",
+      "For the stir fry",
+    ]);
+  });
+
+  test("plain ingredient list (no group markup) → sections all null", () => {
+    const html = `<script type="application/ld+json">{
+      "@type": "Recipe",
+      "name": "Simple",
+      "recipeYield": "2",
+      "recipeIngredient": ["1 egg", "2 cups flour"]
+    }</script>`;
+    const { recipe } = extractFromSchemaOrg(html, "https://example.com/s");
+    expect(recipe!.ingredients.map((i) => i.section)).toEqual([null, null]);
   });
 });

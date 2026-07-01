@@ -51,6 +51,15 @@ export interface RecipeIngredient {
   name: string;
   /** Resolved after normalization; null if unresolvable */
   canonical_id: string | null;
+  /** Section/group label, e.g. "For the sauce"; null/absent = ungrouped */
+  section?: string | null;
+}
+
+/** A single cooking step, optionally tagged with its section/group label. */
+export interface InstructionStep {
+  text: string;
+  /** Section/group label, e.g. "For the sauce"; null/absent = ungrouped */
+  section?: string | null;
 }
 
 export interface Recipe {
@@ -64,7 +73,7 @@ export interface Recipe {
   cuisine_source: CuisineSource;
   ingredients: RecipeIngredient[];
   /** Numbered cooking steps; empty array when extraction found none */
-  instructions: string[];
+  instructions: InstructionStep[];
   /** Freeform user notes; optional (absent on freshly extracted / cached recipes) */
   notes?: string | null;
   /** True once a user has saved a manual edit; guards against re-extract clobber */

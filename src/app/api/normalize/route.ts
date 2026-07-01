@@ -35,8 +35,16 @@ const RequestSchema = z.object({
         canonical_id: z.string().nullable(),
       })
     ),
-    // Tolerate recipes cached before instructions existed
-    instructions: z.array(z.string()).default([]),
+    // Tolerate recipes cached before instructions existed, plus both the legacy
+    // string[] and current InstructionStep[] shapes (normalize ignores them).
+    instructions: z
+      .array(
+        z.union([
+          z.string(),
+          z.object({ text: z.string(), section: z.string().nullable().optional() }),
+        ])
+      )
+      .default([]),
   }),
   target_servings: z.number().positive().optional(),
 });

@@ -13,7 +13,7 @@
  */
 
 import * as cheerio from "cheerio";
-import type { Recipe, RecipeIngredient } from "@/types";
+import type { InstructionStep, Recipe, RecipeIngredient } from "@/types";
 import { inferCuisineSource } from "@/lib/normalizers/lookup";
 import { v4 as uuidv4 } from "uuid";
 
@@ -170,26 +170,34 @@ export function cleanIngredientText(raw: string): string {
 }
 
 /**
- * Parse recipeInstructions into a flat array of step strings.
- * Handles the three common JSON-LD shapes:
+ * Parse recipeInstructions into an ordered array of steps, preserving section
+ * grouping. Handles the three common JSON-LD shapes:
  *   1. Plain string array:  ["Boil water.", "Add pasta."]
  *   2. HowToStep objects:   [{ "@type": "HowToStep", "text": "..." }]
- *   3. HowToSection:        [{ "@type": "HowToSection", "itemListElement": [...] }]
+ *   3. HowToSection:        [{ "@type": "HowToSection", "name": "Sauce",
+ *                              "itemListElement": [...] }]
  * Plus a single plain string (split on newlines) and a lone unwrapped
- * step/section object (some recipe plugins skip the array). Sections are
- * flattened. Returns [] for missing/unparseable input — instructions are
+ * step/section object (some recipe plugins skip the array). A `HowToSection`'s
+ * `name` is attached as the `section` of its nested steps; top-level steps get
+ * `section: null`. Returns [] for missing/unparseable input — instructions are
  * optional.
+ *
+ * @param raw      recipeInstructions value
+ * @param section  section label to tag the parsed steps with (set when
+ *                 recursing into a HowToSection)
  */
 export function parseInstructions(
-  raw: SchemaOrgInstruction[] | SchemaOrgInstruction | undefined | null
-): string[] {
+  raw: SchemaOrgInstruction[] | SchemaOrgInstruction | undefined | null,
+  section: string | null = null
+): InstructionStep[] {
   if (raw === undefined || raw === null) return [];
 
   if (typeof raw === "string") {
     return raw
       .split(/\r?\n/)
       .map(cleanStepText)
-      .filter((s) => s.length > 0);
+      .filter((s) => s.length > 0)
+      .map((text) => ({ text, section }));
   }
 
   if (typeof raw !== "object") return [];
@@ -197,18 +205,20 @@ export function parseInstructions(
   // Lone HowToStep/HowToSection object not wrapped in an array
   const items = Array.isArray(raw) ? raw : [raw];
 
-  const steps: string[] = [];
+  const steps: InstructionStep[] = [];
   for (const item of items) {
     if (typeof item === "string") {
       const cleaned = cleanStepText(item);
-      if (cleaned) steps.push(cleaned);
+      if (cleaned) steps.push({ text: cleaned, section });
       continue;
     }
     if (typeof item !== "object" || item === null) continue;
 
-    // HowToSection (or anything with nested steps) — recurse and flatten
+    // HowToSection (or anything with nested steps) — recurse, tagging the
+    // nested steps with this section's name.
     if (Array.isArray(item.itemListElement)) {
-      steps.push(...parseInstructions(item.itemListElement));
+      const name = typeof item.name === "string" ? item.name.trim() : "";
+      steps.push(...parseInstructions(item.itemListElement, name || section));
       continue;
     }
 
@@ -216,10 +226,151 @@ export function parseInstructions(
     const text = item.text ?? item.name;
     if (typeof text === "string") {
       const cleaned = cleanStepText(text);
-      if (cleaned) steps.push(cleaned);
+      if (cleaned) steps.push({ text: cleaned, section });
     }
   }
   return steps;
+}
+
+/**
+ * Extract ingredient groups from rendered recipe-plugin HTML. JSON-LD's
+ * `recipeIngredient` is flat, but the page markup keeps the group headers — we
+ * mine those to recover section labels. Handles the two dominant plugins:
+ *   - WP Recipe Maker (RecipeTin Eats, Hot Thai Kitchen): a
+ *     `.wprm-recipe-ingredient-group` per group, header in
+ *     `.wprm-recipe-ingredient-group-name`, items in `.wprm-recipe-ingredient`.
+ *   - Tasty Recipes (The Woks of Life): heading tags interleaved with `<ul>`
+ *     inside `.tasty-recipes-ingredients-body`.
+ * Returns [] when no group markup is found (→ caller leaves ingredients
+ * ungrouped). Only groups with at least one item are returned.
+ */
+export function extractIngredientGroups(
+  $: cheerio.CheerioAPI
+): Array<{ name: string | null; items: string[] }> {
+  const collapse = (s: string) => s.replace(/\s+/g, " ").trim();
+
+  // WP Recipe Maker
+  const wprmGroups: Array<{ name: string | null; items: string[] }> = [];
+  $(".wprm-recipe-ingredient-group").each((_, groupEl) => {
+    const name =
+      collapse($(groupEl).find(".wprm-recipe-ingredient-group-name").first().text()) || null;
+    const items: string[] = [];
+    $(groupEl)
+      .find(".wprm-recipe-ingredient")
+      .each((__, ingEl) => {
+        const text = collapse($(ingEl).text());
+        if (text) items.push(text);
+      });
+    if (items.length > 0) wprmGroups.push({ name, items });
+  });
+  if (wprmGroups.length > 0) return wprmGroups;
+
+  // Tasty Recipes — walk children in document order, headings open a new group.
+  // Scope to the items wrapper (`-body`), not the outer container, so the
+  // plugin's own generic "Ingredients" title + scale-button heading don't leak
+  // in as a section. Fall back to the outer container for markup variants that
+  // lack a `-body` wrapper.
+  const tastyBody = $(".tasty-recipes-ingredients-body").first();
+  const tastyContainer =
+    tastyBody.length > 0 ? tastyBody : $(".tasty-recipes-ingredients").first();
+  if (tastyContainer.length > 0) {
+    const groups: Array<{ name: string | null; items: string[] }> = [];
+    let current: { name: string | null; items: string[] } | null = null;
+    tastyContainer
+      .find("h2, h3, h4, h5, h6, li")
+      .each((_, el) => {
+        const tag = (el as { tagName?: string }).tagName?.toLowerCase() ?? "";
+        if (tag.startsWith("h")) {
+          const name = collapse($(el).text()) || null;
+          current = { name, items: [] };
+          groups.push(current);
+        } else {
+          const text = collapse($(el).text());
+          if (!text) return;
+          if (!current) {
+            current = { name: null, items: [] };
+            groups.push(current);
+          }
+          current.items.push(text);
+        }
+      });
+    // Generic plugin titles ("Ingredients", "Method", …) aren't real sub-group
+    // labels — null them so a recipe without sub-groups stays ungrouped, while a
+    // genuinely grouped recipe with a leaked title keeps only its real groups.
+    const cleaned = groups
+      .filter((g) => g.items.length > 0)
+      .map((g) =>
+        g.name && isGenericGroupLabel(g.name) ? { ...g, name: null } : g
+      );
+    // Only meaningful if at least one group still carries a real label.
+    if (cleaned.some((g) => g.name)) return cleaned;
+  }
+
+  return [];
+}
+
+/** Generic plugin section titles that should not be treated as group labels. */
+function isGenericGroupLabel(name: string): boolean {
+  return /^(ingredients?|instructions?|directions?|method)$/i.test(name.trim());
+}
+
+/**
+ * Assign a `section` label to each `recipeIngredient` entry from HTML groups.
+ *
+ * Resolution order, chosen so a count match alone is never blindly trusted yet
+ * the common same-source case still works even when the HTML text is formatted
+ * slightly differently from the JSON-LD:
+ *   1. Counts equal AND every pair matches by normalized text in order → map by
+ *      index (fast; also correct when an ingredient line repeats across groups).
+ *   2. Else, if every raw ingredient resolves in the normalized text map (a pure
+ *      reorder — text still corresponds) → use the text-matched labels.
+ *   3. Else, if counts still equal → fall back to index order (texts differ only
+ *      in formatting; index remains the best signal).
+ *   4. Else (counts differ, no full text match) → text-match best-effort, null
+ *      for anything unmatched.
+ *
+ * @param rawIngredients  the JSON-LD recipeIngredient strings (pre-clean)
+ * @param groups          output of extractIngredientGroups
+ * @returns               section label per index (aligned to rawIngredients)
+ */
+export function assignIngredientSections(
+  rawIngredients: string[],
+  groups: Array<{ name: string | null; items: string[] }>
+): Array<string | null> {
+  if (groups.length === 0) return rawIngredients.map(() => null);
+
+  // Flatten the grouped items into a parallel (label, text) sequence.
+  const flat: Array<{ name: string | null; text: string }> = [];
+  for (const g of groups) {
+    for (const text of g.items) flat.push({ name: g.name, text });
+  }
+
+  const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+  const sameCount = flat.length === rawIngredients.length;
+
+  // 1. Index alignment, but only when the texts actually line up in order.
+  if (sameCount && flat.every((f, i) => norm(f.text) === norm(rawIngredients[i]))) {
+    return flat.map((f) => f.name);
+  }
+
+  // Normalized text map (first occurrence wins on duplicates).
+  const byText = new Map<string, string | null>();
+  for (const f of flat) {
+    if (!byText.has(norm(f.text))) byText.set(norm(f.text), f.name);
+  }
+
+  // 2. Pure reorder: every ingredient corresponds to a grouped item by text.
+  if (rawIngredients.every((raw) => byText.has(norm(raw)))) {
+    return rawIngredients.map((raw) => byText.get(norm(raw)) ?? null);
+  }
+
+  // 3. Same count but text differs (formatting) — trust index order.
+  if (sameCount) {
+    return flat.map((f) => f.name);
+  }
+
+  // 4. Counts differ — best-effort text match, ungrouped otherwise.
+  return rawIngredients.map((raw) => byText.get(norm(raw)) ?? null);
 }
 
 /**
@@ -326,7 +477,13 @@ export function extractFromSchemaOrg(html: string, url: string): ExtractionResul
 
   // Build the Recipe struct
   const recipeId = uuidv4();
-  const ingredients: RecipeIngredient[] = rawIngredients.map((raw) => {
+  // JSON-LD recipeIngredient is flat; recover section labels from the page's
+  // recipe-plugin markup (WPRM / Tasty Recipes) and align by index/text.
+  const sections = assignIngredientSections(
+    rawIngredients,
+    extractIngredientGroups($)
+  );
+  const ingredients: RecipeIngredient[] = rawIngredients.map((raw, i) => {
     const cleaned = cleanIngredientText(raw);
     return {
       recipe_id: recipeId,
@@ -335,6 +492,7 @@ export function extractFromSchemaOrg(html: string, url: string): ExtractionResul
       unit: null,
       name: cleaned, // Will be parsed in the normalization step
       canonical_id: null,
+      section: sections[i] ?? null,
     };
   });
 
