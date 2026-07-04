@@ -144,6 +144,17 @@ describe("verifyPassword", () => {
     expect(verifyPassword("correct horse battery staple ")).toBe(false);
     expect(verifyPassword("short")).toBe(false);
   });
+
+  test("throws when ADMIN_SESSION_SECRET is missing — the login route must catch this", () => {
+    // The session secret keys the password-HMAC too. If an admin sets
+    // ADMIN_PASSWORD but forgets ADMIN_SESSION_SECRET, verifyPassword throws
+    // instead of returning false, so the login route must translate that into
+    // a config-error 500 rather than a generic uncaught 500.
+    delete process.env.ADMIN_SESSION_SECRET;
+    expect(() => verifyPassword("correct horse battery staple")).toThrow(
+      /ADMIN_SESSION_SECRET/
+    );
+  });
 });
 
 describe("isAdmin", () => {

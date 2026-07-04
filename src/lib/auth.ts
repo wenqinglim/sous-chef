@@ -24,12 +24,24 @@ function secret(): string {
   return s;
 }
 
-function hmac(payload: string): Buffer {
-  return createHmac("sha256", secret()).update(payload).digest();
+/**
+ * Domain-separated HMAC: the same secret can safely key both the session
+ * signature and the password comparison because the domain prefix means
+ * `hmac("session", x)` and `hmac("password", x)` live in disjoint output
+ * spaces even for the same `x`. A new use later just picks a new domain.
+ */
+type HmacDomain = "session" | "password";
+
+function hmac(domain: HmacDomain, payload: string): Buffer {
+  return createHmac("sha256", secret())
+    .update(domain)
+    .update("\0")
+    .update(payload)
+    .digest();
 }
 
 export function signSession(expiresAt: number): string {
-  return `${expiresAt}.${hmac(String(expiresAt)).toString("hex")}`;
+  return `${expiresAt}.${hmac("session", String(expiresAt)).toString("hex")}`;
 }
 
 export function newSession(now: number = Date.now()): {
@@ -53,7 +65,7 @@ export function verifySession(
   const expiresAt = Number(expiresAtStr);
   if (!Number.isFinite(expiresAt) || expiresAt <= now) return false;
 
-  const expected = hmac(expiresAtStr);
+  const expected = hmac("session", expiresAtStr);
   const provided = Buffer.from(providedSig, "hex");
   if (provided.length !== expected.length) return false;
   return timingSafeEqual(provided, expected);
@@ -63,12 +75,16 @@ export function verifySession(
  * Constant-time password check. We HMAC both sides so the timing profile is
  * independent of the input length, and only a fixed-length digest ever hits
  * timingSafeEqual — no early return on length mismatch to leak a size oracle.
+ *
+ * Callers must guard against a missing/short `ADMIN_SESSION_SECRET`: `hmac`
+ * throws in that case (fail-closed) and the caller decides whether to
+ * surface a 500 or degrade quietly.
  */
 export function verifyPassword(input: string): boolean {
   const expected = process.env.ADMIN_PASSWORD;
   if (!expected) return false;
-  const a = hmac(input);
-  const b = hmac(expected);
+  const a = hmac("password", input);
+  const b = hmac("password", expected);
   return timingSafeEqual(a, b);
 }
 
