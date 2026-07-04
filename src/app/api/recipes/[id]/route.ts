@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { deleteRecipe, getRecipe, updateRecipe } from "@/lib/db/recipes";
 import { normalizeInstructions } from "@/lib/recipe/sections";
+import { requireAdmin } from "@/lib/auth";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -56,6 +57,9 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
 }
 
 export async function PUT(request: NextRequest, { params }: RouteContext) {
+  const forbidden = await requireAdmin();
+  if (forbidden) return forbidden;
+
   const { id } = await params;
 
   let body: unknown;
@@ -108,6 +112,9 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
 }
 
 export async function DELETE(_request: NextRequest, { params }: RouteContext) {
+  const forbidden = await requireAdmin();
+  if (forbidden) return forbidden;
+
   const { id } = await params;
   try {
     const deleted = await deleteRecipe(id);

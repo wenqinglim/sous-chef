@@ -35,6 +35,9 @@ ANTHROPIC_API_KEY=sk-ant-...
 DATABASE_URL=postgresql://...   # Neon connection string; injected by the Vercel↔Neon integration in prod
 GROQ_API_KEY=gsk_...            # Groq Whisper — Instagram reel audio transcription
 APIFY_TOKEN=apify_api_...       # Apify scraper — fetches Instagram reel caption + video (see Instagram reels below)
+ADMIN_PASSWORD=...              # Shared admin password. Browsing is public; only add/edit/delete require this
+ADMIN_SESSION_SECRET=...        # 32+ random bytes; HMAC-signs the admin session cookie.
+                                #   Generate: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
 ## Running Locally
@@ -43,7 +46,7 @@ APIFY_TOKEN=apify_api_...       # Apify scraper — fetches Instagram reel capti
 npm install
 npm run db:deploy  # apply Prisma migrations (once per database)
 npm run dev        # http://localhost:3000
-npm test           # run all tests (407 passing; no DB needed — Prisma is mocked)
+npm test           # run all tests (432 passing; no DB needed — Prisma is mocked)
 npm run build      # production build: prisma generate → migrate deploy → next build
 ```
 
@@ -55,7 +58,9 @@ npm run build      # production build: prisma generate → migrate deploy → ne
 
 ## Test Coverage
 
-407 tests across 14 suites:
+432 tests across 16 suites:
+- `tests/auth.test.ts` — session HMAC (sign/verify, tamper, expiry, non-hex, missing/short secret) + `verifyPassword` (correct/wrong, unset password, length-independent timing, missing secret throws) + `isAdmin()` with mocked `next/headers` cookies
+- `tests/api-auth.test.ts` — `POST /api/extract`, `PUT`/`DELETE /api/recipes/[id]` return 403 for anonymous callers; `GET /api/recipes/[id]` stays public; valid signed cookie passes the guard
 - `tests/units.test.ts` — unit conversions + ingredient text parser, incl. mixed/unicode ranges
 - `tests/normalization.test.ts` — registry lookup, alias matching, soy sauce disambiguation, messy-name robustness
 - `tests/extraction.test.ts` — schema.org extraction for all 4 target sites + `parseInstructions` for every JSON-LD instruction shape (incl. `HowToSection` → step section labels) + `extractIngredientGroups`/`assignIngredientSections` (WPRM + Tasty Recipes ingredient-group HTML → ingredient sections)
@@ -311,6 +316,15 @@ Heuristic: unqualified "soy sauce" → `soy_sauce_light` if `cuisine_source === 
 | `/api/recipes/[id]` | GET | — | `{ recipe }` | Full saved recipe |
 | `/api/recipes/[id]` | PUT | `{ title?, base_servings?, ingredients?, instructions?, notes? }` | `{ recipe }` | Persist user edits; flags the recipe `edited` |
 | `/api/recipes/[id]` | DELETE | — | `{ ok: true }` | Remove from library |
+| `/api/admin/login` | POST | `{ password }` | `{ ok: true }` \| 401 \| 500 | Sets HMAC-signed HttpOnly `sc_admin` cookie; 500 when `ADMIN_SESSION_SECRET` is misconfigured |
+| `/api/admin/logout` | POST | — | 303 redirect to `/` | Clears the session cookie |
+
+**Admin gate**: `POST /api/extract` and `PUT`/`DELETE /api/recipes/[id]` all
+return `403 Forbidden` without a valid `sc_admin` cookie. All `GET` routes plus
+`POST /api/normalize` and `POST /api/grocery-list` stay public so viewers can
+browse the library and build grocery lists from saved recipes. The single guard
+is `requireAdmin()` in `src/lib/auth.ts` — new write endpoints should call it
+too.
 
 ## Recipe Library (Postgres + Prisma)
 
@@ -379,3 +393,4 @@ user copies out never contains oz or lb. Enforced by a regression test in
 - [x] Task 18: Scraper-based reel fetch (`APIFY_TOKEN`) + manual caption-paste fallback; drop personal `IG_SESSIONID`
 - [x] Task 19: Residential-scraper HTML fallback for bot-blocked recipe sites (Cloudflare 403 → Apify Website Content Crawler)
 - [x] Task 20: Recipe sections — preserve ingredient/instruction group labels (`section`) end-to-end; render grouped in detail/editor UIs
+- [x] Task 21: View-only mode — shared-password admin auth (HMAC-signed cookie, no auth deps); browsing stays fully public, only add/edit/delete are gated (`ADMIN_PASSWORD` + `ADMIN_SESSION_SECRET`, `/admin/login`, `requireAdmin()` guard on the 3 write endpoints)

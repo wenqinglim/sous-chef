@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useIsAdmin } from "@/components/AdminProvider";
 
 interface RecipeSummary {
   id: string;
@@ -24,6 +25,7 @@ interface RecipeSummary {
 }
 
 export default function RecipeLibraryGrid() {
+  const isAdmin = useIsAdmin();
   const [summaries, setSummaries] = useState<RecipeSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -83,7 +85,9 @@ export default function RecipeLibraryGrid() {
   if (summaries.length === 0) {
     return (
       <div className="mt-6 text-center text-sm text-stone-500 border border-dashed border-stone-300 rounded-xl py-10 px-4">
-        No saved recipes yet. Paste a recipe URL above to start your library.
+        {isAdmin
+          ? "No saved recipes yet. Paste a recipe URL above to start your library."
+          : "No saved recipes yet."}
       </div>
     );
   }
@@ -106,14 +110,16 @@ export default function RecipeLibraryGrid() {
               aria-label={summary.title}
             />
 
-            <button
-              onClick={(e) => handleDelete(e, summary)}
-              disabled={busyId === summary.id}
-              className="absolute top-2 right-2 z-10 text-stone-300 hover:text-red-500 transition-colors text-lg leading-none disabled:opacity-40"
-              aria-label={`Delete ${summary.title}`}
-            >
-              ×
-            </button>
+            {isAdmin && (
+              <button
+                onClick={(e) => handleDelete(e, summary)}
+                disabled={busyId === summary.id}
+                className="absolute top-2 right-2 z-10 text-stone-300 hover:text-red-500 transition-colors text-lg leading-none disabled:opacity-40"
+                aria-label={`Delete ${summary.title}`}
+              >
+                ×
+              </button>
+            )}
 
             <div className="font-medium text-sm text-stone-900 pr-5 line-clamp-2">
               {summary.title}

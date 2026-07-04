@@ -1,7 +1,9 @@
 import AddRecipeForm from "@/components/AddRecipeForm";
 import RecipeLibraryGrid from "@/components/RecipeLibraryGrid";
+import { isAdmin } from "@/lib/auth";
 
-export default function HomePage() {
+export default async function HomePage() {
+  const admin = await isAdmin();
   return (
     <main className="max-w-3xl mx-auto px-4 py-8">
       <div className="mb-6">
@@ -12,7 +14,7 @@ export default function HomePage() {
         </p>
       </div>
 
-      <AddRecipeForm />
+      {admin && <AddRecipeForm />}
       <RecipeLibraryGrid />
     </main>
   );

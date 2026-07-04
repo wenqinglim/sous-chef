@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import SiteHeader from "@/components/SiteHeader";
+import { AdminProvider } from "@/components/AdminProvider";
+import { isAdmin } from "@/lib/auth";
 
 export const metadata: Metadata = {
   title: "Sous-Chef — Recipe Library",
@@ -8,16 +10,19 @@ export const metadata: Metadata = {
     "Save recipes from any URL, view and customize their ingredients and steps, and build a grocery list when you're ready.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const admin = await isAdmin();
   return (
     <html lang="en">
       <body className="min-h-screen bg-stone-50">
-        <SiteHeader />
-        {children}
+        <AdminProvider isAdmin={admin}>
+          <SiteHeader isAdmin={admin} />
+          {children}
+        </AdminProvider>
       </body>
     </html>
   );

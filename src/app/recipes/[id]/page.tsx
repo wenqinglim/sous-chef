@@ -12,10 +12,12 @@ import Link from "next/link";
 import type { Recipe } from "@/types";
 import RecipeView from "@/components/RecipeView";
 import RecipeEditor from "@/components/RecipeEditor";
+import { useIsAdmin } from "@/components/AdminProvider";
 
 export default function RecipeDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
+  const isAdmin = useIsAdmin();
 
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +40,12 @@ export default function RecipeDetailPage() {
     };
   }, [id]);
 
+  // If the admin session ends mid-edit (cross-tab logout, cookie expiry), don't
+  // silently unmount the editor and drop the draft — kick out to the read view.
+  useEffect(() => {
+    if (!isAdmin && editing) setEditing(false);
+  }, [isAdmin, editing]);
+
   if (error) {
     return (
       <main className="max-w-3xl mx-auto px-4 py-8">
@@ -57,7 +65,7 @@ export default function RecipeDetailPage() {
     );
   }
 
-  if (editing) {
+  if (editing && isAdmin) {
     return (
       <RecipeEditor
         recipe={recipe}

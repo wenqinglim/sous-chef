@@ -29,6 +29,7 @@ import {
 import { safeFetch, BlockedUrlError } from "@/lib/extractors/safe-fetch";
 import { fetchPageHtmlViaScraper } from "@/lib/extractors/page-scraper";
 import { upsertRecipeByUrl } from "@/lib/db/recipes";
+import { requireAdmin } from "@/lib/auth";
 
 export const maxDuration = 60;
 
@@ -70,6 +71,9 @@ async function saveExtracted(
 }
 
 export async function POST(request: NextRequest) {
+  const forbidden = await requireAdmin();
+  if (forbidden) return forbidden;
+
   // Validate request body before opening the stream.
   let body: unknown;
   try {
