@@ -14,6 +14,7 @@ import type { Dispatch, SetStateAction } from "react";
 import type { Recipe } from "@/types";
 import type { RecipeRow } from "@/components/RecipeForm";
 import { normalizeUrl } from "@/lib/normalize-url";
+import { useIsAdmin } from "@/components/AdminProvider";
 
 interface RecipeSummary {
   id: string;
@@ -31,6 +32,7 @@ interface Props {
 }
 
 export default function RecipeLibrary({ rows, onRowsChange }: Props) {
+  const isAdmin = useIsAdmin();
   const [summaries, setSummaries] = useState<RecipeSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -147,14 +149,16 @@ export default function RecipeLibrary({ rows, onRowsChange }: Props) {
               >
                 {alreadyAdded ? "Added" : "Add to plan"}
               </button>
-              <button
-                onClick={() => handleDelete(summary)}
-                disabled={busyId === summary.id}
-                className="text-stone-400 hover:text-red-500 transition-colors text-lg leading-none disabled:opacity-40"
-                aria-label={`Delete ${summary.title}`}
-              >
-                ×
-              </button>
+              {isAdmin && (
+                <button
+                  onClick={() => handleDelete(summary)}
+                  disabled={busyId === summary.id}
+                  className="text-stone-400 hover:text-red-500 transition-colors text-lg leading-none disabled:opacity-40"
+                  aria-label={`Delete ${summary.title}`}
+                >
+                  ×
+                </button>
+              )}
             </div>
           );
         })}

@@ -3,6 +3,10 @@
  * fallback): pasted `text` is extracted directly via the LLM with no fetching.
  */
 
+// Admin-gate mock: /api/extract requires an admin session. Simulate an
+// authenticated call by returning a freshly signed cookie for every request.
+jest.mock("next/headers", () => ({ cookies: jest.fn() }));
+
 jest.mock("@/lib/db/recipes", () => ({ upsertRecipeByUrl: jest.fn() }));
 jest.mock("@/lib/extractors/llm-fallback", () => ({ extractWithLlm: jest.fn() }));
 jest.mock("@/lib/extractors/instagram", () => ({
@@ -80,6 +84,21 @@ async function readEvents(res: Response): Promise<Array<Record<string, unknown>>
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // Fresh signed session cookie so requireAdmin() passes.
+  process.env.ADMIN_SESSION_SECRET =
+    process.env.ADMIN_SESSION_SECRET ??
+    "test-secret-at-least-16-bytes-long-please-1234567890";
+  // Import lazily so ADMIN_SESSION_SECRET is set before newSession runs.
+  const {
+    SESSION_COOKIE_NAME,
+    newSession,
+  } = require("@/lib/auth") as typeof import("@/lib/auth");
+  const { cookies } = require("next/headers");
+  const { value } = newSession();
+  (cookies as jest.Mock).mockResolvedValue({
+    get: (name: string) =>
+      name === SESSION_COOKIE_NAME ? { value } : undefined,
+  });
 });
 
 describe("POST /api/extract — pasted text branch", () => {

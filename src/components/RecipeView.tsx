@@ -15,6 +15,7 @@ import type { Recipe } from "@/types";
 import { addToMealPlan } from "@/lib/storage/localStorage";
 import { rescaleIngredientLine } from "@/lib/units/rescale";
 import { groupBySection, normalizeInstructions } from "@/lib/recipe/sections";
+import { useIsAdmin } from "@/components/AdminProvider";
 
 interface Props {
   recipe: Recipe;
@@ -22,6 +23,7 @@ interface Props {
 }
 
 export default function RecipeView({ recipe, onCustomize }: Props) {
+  const isAdmin = useIsAdmin();
   const router = useRouter();
   const [added, setAdded] = useState(false);
   const [viewServings, setViewServings] = useState(recipe.base_servings);
@@ -117,12 +119,14 @@ export default function RecipeView({ recipe, onCustomize }: Props) {
           >
             🛒 Add to grocery list
           </button>
-          <button
-            onClick={onCustomize}
-            className="px-3 py-1.5 text-sm font-medium rounded-lg border border-stone-300 text-stone-700 hover:bg-stone-50 transition-colors"
-          >
-            ✏️ Customize
-          </button>
+          {isAdmin && (
+            <button
+              onClick={onCustomize}
+              className="px-3 py-1.5 text-sm font-medium rounded-lg border border-stone-300 text-stone-700 hover:bg-stone-50 transition-colors"
+            >
+              ✏️ Customize
+            </button>
+          )}
         </div>
 
         {notes && (
