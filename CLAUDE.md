@@ -1,396 +1,77 @@
 # Sous-Chef — Developer Guide
 
-## What This App Does
+## What this app is
 
-A **recipe library** is the primary surface: the home page (`/`) lists your saved recipes; open one (`/recipes/[id]`) to read its ingredients, steps, and notes, follow a link back to the original source, and customize it. Recipes are imported from a URL (schema.org JSON-LD, Claude fallback) and auto-saved to a shared library (Postgres).
+A **recipe library** with a grocery-list side quest. The home page (`/`) lists saved recipes (Postgres); open one to read/customize it. Import from any URL (schema.org JSON-LD; Claude fallback; Instagram reels via caption/audio). A secondary route (`/grocery-list`) scales + aggregates ingredients across picked recipes into a Google-Keep-flavored checklist.
 
-Turning recipes into a **grocery list** is a secondary feature on its own route (`/grocery-list`): pick recipes + serving sizes, scale + aggregate quantities across them, and copy a checklist formatted for Google Keep (line breaks become checkboxes).
-
-### Pages / Routes (UI)
+## Pages / routes
 
 | Route | Purpose |
 |-------|---------|
-| `/` | Recipe library — grid of saved recipes (`RecipeLibraryGrid`) + URL importer (`AddRecipeForm`) |
-| `/recipes/[id]` | Single-recipe detail (`RecipeView`) + customize editor (`RecipeEditor`); link to original URL; "Add to grocery list" |
-| `/grocery-list` | The build-a-grocery-list wizard (URL → review → list); the saved-recipe picker also lives here |
+| `/` | Recipe library grid (`RecipeLibraryGrid`) + URL importer (`AddRecipeForm`). |
+| `/recipes/[id]` | Single-recipe detail (`RecipeView`) + customize editor (`RecipeEditor`). |
+| `/grocery-list` | Build-a-grocery-list wizard + saved-recipe picker. |
 
-Shared chrome (`SiteHeader`) lives in `src/app/layout.tsx`.
+Shared chrome (`SiteHeader`) in `src/app/layout.tsx`.
 
-## Tech Stack
+## Tech stack
 
-- **Framework**: Next.js 15 (App Router, TypeScript)
-- **Styling**: Tailwind CSS
-- **LLM**: Claude API (`@anthropic-ai/sdk`) — used as fallback only; primary extraction uses schema.org JSON-LD
-- **Database**: Postgres (Neon free tier via Vercel Marketplace) + Prisma 6 — shared recipe library; single-user for now (nullable `user_id` reserved for multi-user)
-- **State**: localStorage for draft meal-plan state; the DB is the durable recipe library
-- **Testing**: Jest + ts-jest
-- **HTML parsing**: cheerio (server-side only)
+Next.js 15 App Router · TypeScript · Tailwind · Postgres (Neon) + Prisma 6 · Claude (`@anthropic-ai/sdk`) · Jest + ts-jest · cheerio.
 
-## Environment Variables
+## Environment (`.env.local`)
 
-Copy `.env.local.example` to `.env.local` and fill in:
+`ANTHROPIC_API_KEY`, `DATABASE_URL`, `GROQ_API_KEY` (Whisper), `APIFY_TOKEN` (Instagram + blocked-site scraper), `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET` (32+ random bytes; `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`).
 
-```
-ANTHROPIC_API_KEY=sk-ant-...
-DATABASE_URL=postgresql://...   # Neon connection string; injected by the Vercel↔Neon integration in prod
-GROQ_API_KEY=gsk_...            # Groq Whisper — Instagram reel audio transcription
-APIFY_TOKEN=apify_api_...       # Apify scraper — fetches Instagram reel caption + video (see Instagram reels below)
-ADMIN_PASSWORD=...              # Shared admin password. Browsing is public; only add/edit/delete require this
-ADMIN_SESSION_SECRET=...        # 32+ random bytes; HMAC-signs the admin session cookie.
-                                #   Generate: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
-
-## Running Locally
+## Running locally
 
 ```bash
 npm install
-npm run db:deploy  # apply Prisma migrations (once per database)
-npm run dev        # http://localhost:3000
-npm test           # run all tests (432 passing; no DB needed — Prisma is mocked)
-npm run build      # production build: prisma generate → migrate deploy → next build
+npm run db:deploy     # apply Prisma migrations
+npm run dev           # http://localhost:3000
+npm test              # 432 tests; no DB needed (Prisma mocked)
+npm run build         # prisma generate → migrate deploy → next build
 ```
 
-> `build` runs `prisma migrate deploy` so every deploy (Vercel) applies pending
-> migrations to the target database before serving — this is what keeps prod's
-> schema in sync with the code. A consequence: `npm run build` needs a reachable
-> `DATABASE_URL`. For a build-only check without a DB, run
-> `npm run db:deploy` separately (or `next build` directly) and rely on `npm test`.
+`build` runs `prisma migrate deploy` so every Vercel deploy syncs prod schema — needs a reachable `DATABASE_URL`. For a build-only check without a DB, run `next build` directly and rely on `npm test`.
 
-## Test Coverage
+## Architecture — five-layer pipeline
 
-432 tests across 16 suites:
-- `tests/auth.test.ts` — session HMAC (sign/verify, tamper, expiry, non-hex, missing/short secret) + `verifyPassword` (correct/wrong, unset password, length-independent timing, missing secret throws) + `isAdmin()` with mocked `next/headers` cookies
-- `tests/api-auth.test.ts` — `POST /api/extract`, `PUT`/`DELETE /api/recipes/[id]` return 403 for anonymous callers; `GET /api/recipes/[id]` stays public; valid signed cookie passes the guard
-- `tests/units.test.ts` — unit conversions + ingredient text parser, incl. mixed/unicode ranges
-- `tests/normalization.test.ts` — registry lookup, alias matching, soy sauce disambiguation, messy-name robustness
-- `tests/extraction.test.ts` — schema.org extraction for all 4 target sites + `parseInstructions` for every JSON-LD instruction shape (incl. `HowToSection` → step section labels) + `extractIngredientGroups`/`assignIngredientSections` (WPRM + Tasty Recipes ingredient-group HTML → ingredient sections)
-- `tests/sections.test.ts` — `normalizeInstructions` (legacy `string[]` → `InstructionStep[]`) + `groupBySection` consecutive-run grouping
-- `tests/instagram.test.ts` — Instagram URL detection (`isInstagramUrl`) and the recipe heuristic gate (`looksLikeRecipe`)
-- `tests/instagram-scraper.test.ts` — `fetchInstagramMedia` request shape + caption/videoUrl parsing + degradation (unconfigured token, empty/non-array/non-ok responses)
-- `tests/instagram-audio.test.ts` — host-validated `binaryFetch` (CDN-only, size cap, diagnostics), Whisper (mocked), and `extractFromInstagramWithAudio` orchestration (caption→audio fallback, caption+transcript merge, graceful degradation)
-- `tests/extract-route.test.ts` — `/api/extract` pasted-text branch (direct LLM extraction, url passthrough/synthesis, no fetching) + website 403→scraper fallback (retry via scraper, error passthrough, no scraper on 404)
-- `tests/page-scraper.test.ts` — `fetchPageHtmlViaScraper` request shape (residential proxy, saveHtml) + HTML parsing + degradation (unconfigured token, blank/empty/non-array/non-ok responses)
-- `tests/llm-fallback.test.ts` — `extractJsonText` unwraps markdown-fenced / prose-wrapped LLM JSON responses
-- `tests/rescale.test.ts` — ingredient quantity rescaling by servings
-- `tests/pipeline.test.ts` — aggregate, purchase planning, full derive(), purchase-unit + slice→weight + metric-output regressions
-- `tests/safe-fetch.test.ts` — SSRF protections
-- `tests/recipes-repo.test.ts` — recipe repository mappers + mocked-Prisma flows (upsert id retention, URL dedupe, summaries, `updateRecipe` edits, edited-recipe re-extract guard)
-
-## Verification Checklist (manual smoke test)
-
-0. **Library home**: on `/`, paste a RecipeTin Eats URL into "Add a recipe" → lands on `/recipes/[id]`; the recipe also appears as a card on `/`
-1. **Detail view**: open a saved recipe → title, ingredients, and numbered steps render; "View original recipe ↗" opens `recipe.url` in a new tab
-1a. **Customize**: click "✏️ Customize" → edit an ingredient, add/remove a step, add a note → Save → reload the page: edits persist and the card/detail shows a "Customized" badge. Re-importing the same URL no longer overwrites the edits
-2. **Single recipe (grocery)**: from a recipe, "Add to grocery list" → on `/grocery-list`, set 4 servings → ingredients render in review step
-3. **Scaling**: Change servings to 6 → confirm quantities reflect target_servings, not base_servings
-4. **Multi-recipe**: Add a Woks of Life recipe alongside RecipeTin Eats → verify shared ingredients (garlic) aggregate into one line item
-5. **Soy sauce test**: Woks of Life recipe → soy sauce should show as "Soy Sauce (Light)" in the list
-6. **Copy to Google Keep**: click copy → paste into Google Keep note → each line becomes a checkbox
-7. **Thai script**: Hot Thai Kitchen recipe → Thai characters in parentheses stripped from ingredient names
-8. **LocalStorage restore**: on `/grocery-list`, close and reopen the browser → previously loaded recipes should still be there
-9. **Saved library picker**: on `/grocery-list`, pick a recipe from "Or pick from your saved recipes" (no URL) → grocery list generates identically
-10. **DB down**: with `DATABASE_URL` unset, the home grid degrades quietly and URL extraction still works (response has `saved: false`)
-
-## Architecture — Five-Layer Pipeline
-
-Every layer has a stable output shape. Layers never talk backwards.
+Layers have stable output shapes and never talk backwards.
 
 ```
-URL
- │
- ▼
-[1] Extraction        URL → Recipe
-      Primary: schema.org JSON-LD (cheerio)
-      Fallback: Claude API (raw HTML → structured JSON)
-      Blocked-site fallback: if the direct fetch is 403/429/503'd by
-        bot mitigation (Cloudflare), re-fetch the HTML via the residential
-        scraper (Apify) — see "Bot-blocked recipe sites" below
- │
- ▼
-[2] Normalization     raw ingredient text → canonical ingredient
-      Primary: alias lookup in ingredients registry (src/lib/registry/)
-      Fallback: Claude API batch call
-      Handles: metric/imperial conversion, parenthetical stripping,
-               soy sauce disambiguation by cuisine source
- │
- ▼
-[3] Aggregation       sum quantities by canonical_id across all recipes
-      Pure math. Converts everything to base units (ml, g, each) before summing.
- │
- ▼
-[4] Purchase Planning convert aggregated quantity → supermarket purchase units
-      Math.ceil to nearest whole purchase unit.
-      Emits: purchase_quantity, leftover_quantity, aisle, is_staple
-      (all fields emitted even if MVP UI hides some)
- │
- ▼
-[5] Presentation      flat checklist, copy button
+URL → [1] Extraction        schema.org JSON-LD (cheerio) → Claude fallback → residential scraper (blocked sites)
+    → [2] Normalization     alias lookup (src/lib/registry/) → Claude batch fallback; metric conversion, soy-sauce disambiguation
+    → [3] Aggregation       pure math; sum by canonical_id in base units (ml, g, each)
+    → [4] Purchase Planning ceil to purchase units; emits leftover_quantity, aisle, is_staple (all fields always populated)
+    → [5] Presentation      flat checklist + copy button
 ```
 
-## Key Design Decisions
+## Key design decisions
 
-### Grocery list is a pure derivation — never persisted
-`list = derive(MealPlan, cachedRecipes)`. Edit inputs → recompute output. No sync bugs.
+- **Grocery list is derived, never persisted.** `list = derive(MealPlan, cachedRecipes)`. Edit inputs → recompute output. No sync bugs.
+- **All `PurchaseItem` fields computed from day one** (`leftover_quantity`, `aisle`, `is_staple`), even if MVP UI hides some. Post-MVP features just read fields that already exist.
+- **MealPlan lives in localStorage in MVP.** Shape: `{ id, name: null, recipes: [{ recipe_id, target_servings }] }`. "Saved meal plans" post-MVP = add `name` + server persistence.
+- **Manual edit step is part of the MVP** — after parsing, user confirms ingredients before processing.
+- **Recipe sections are preserved, not flattened.** Grouping is display-only; the grocery pipeline still flattens + aggregates by `canonical_id`.
+- **Output units are always metric** (ml, g, kg) or cups/spoons — never oz/lb. Enforced by a pipeline regression test.
 
-### All PurchaseItem fields computed from day one
-`leftover_quantity`, `aisle`, `is_staple` are computed and returned even though the MVP UI doesn't display them. Post-MVP features (aisle grouping, pantry mode, leftover tracking) just read fields that already exist.
+## Core rules
 
-### MealPlan lives in localStorage in MVP
-Shape: `{ id, name: null, recipes: [{ recipe_id, target_servings }] }`. "Saved meal plans" post-MVP = add `name` + server persistence. No structural change.
+- **Single-user for now.** Nullable `user_id` reserved; all DB access goes through `src/lib/db/recipes.ts` — the single place to add a `userId` filter when multi-user lands.
+- **All write endpoints** (`POST /api/extract`, `PUT`/`DELETE /api/recipes/[id]`) must call `requireAdmin()` in `src/lib/auth.ts`.
+- **All LLM responses must be JSON** — never parse free text. `extractJsonText` unwraps markdown/prose-wrapped responses.
+- **Fail gracefully.** Scrapers return `null` (→ clear error + paste fallback) rather than throwing. Never hard-fail an extraction on a downstream API blip.
 
-### Manual edit step is part of MVP
-After parsing, show the user extracted ingredients for confirmation before processing. Parsing fails more often than you'd think.
+## Recipe sources
 
-### Recipe sections are preserved, not flattened
-Recipes often group ingredients/steps under subheadings (e.g. "For the sauce").
-Each `RecipeIngredient` and `InstructionStep` carries an optional `section`
-label, and the detail/editor UIs render consecutive same-label runs under that
-heading (`groupBySection` in `src/lib/recipe/sections.ts`). Sources of the label:
-- **Instructions**: schema.org `HowToSection.name` (captured by `parseInstructions`)
-  for all sites; the LLM path supplies it too.
-- **Ingredients**: JSON-LD `recipeIngredient` is flat, so for schema.org sites the
-  labels are mined from the page's recipe-plugin HTML (WP Recipe Maker / Tasty
-  Recipes) via `extractIngredientGroups` + `assignIngredientSections` (index-align
-  when counts match, else text-match, else null). The LLM path supplies them directly.
+All four have clean schema.org JSON-LD — Claude fallback should rarely fire:
+recipetineats.com (metric, AU) · thewoksoflife.com (imperial, `cuisine_source=asian`) · hot-thai-kitchen.com (metric, Thai script in parens) · madewithlau.com (mixed, Chinese chars in parens).
 
-The grocery pipeline ignores `section` entirely — it still flattens + aggregates
-by `canonical_id`, so sectioning is display-only and never affects the list.
-`section` is additive on the JSONB columns (no migration); legacy `string[]`
-instructions are coerced to `InstructionStep[]` at read via `normalizeInstructions`.
+## Rules that load conditionally
 
-## Data Model
-
-```typescript
-CanonicalIngredient {
-  id: string
-  name: string
-  aliases: string[]
-  aisle: string          // "produce" | "meat" | "dairy" | "asian_grocery" | "pantry" | "condiments" | ...
-  default_purchase_unit: string
-  default_purchase_size: number
-  is_staple: boolean
-  canonical_unit: string
-  conversion_factors: Record<string, number>
-}
-
-Recipe {
-  id: string
-  url: string
-  title: string
-  base_servings: number
-  parsed_at: string      // ISO date; recipes cached for 7 days
-  cuisine_source: "asian" | "western" | "unknown"
-  ingredients: RecipeIngredient[]
-  instructions: InstructionStep[]  // numbered cooking steps; [] when extraction found none
-  notes?: string | null   // freeform user notes (customization); absent on fresh extracts
-  edited?: boolean         // true once a user saved an edit; guards against re-extract clobber
-}
-
-RecipeIngredient {
-  recipe_id: string
-  raw_text: string       // preserve original for manual-edit step
-  quantity: number | null
-  unit: string | null
-  name: string           // parsed name (no quantity/prep notes)
-  canonical_id: string | null
-  section?: string | null // group label, e.g. "For the sauce"; null/absent = ungrouped
-}
-
-InstructionStep {
-  text: string            // a single cooking step
-  section?: string | null // group label, e.g. "Make the sauce"; null/absent = ungrouped
-}
-
-MealPlan {
-  id: string
-  name: null             // null in MVP
-  recipes: Array<{ recipe_id: string; target_servings: number }>
-}
-
-PurchaseItem {
-  canonical_id: string
-  display_name: string
-  recipe_quantity: number
-  recipe_unit: string
-  purchase_unit: string
-  purchase_quantity: number
-  leftover_quantity: number
-  aisle: string
-  is_staple: boolean
-}
-```
-
-## Primary Recipe Sources
-
-All four sites have clean schema.org JSON-LD markup — Claude fallback should rarely fire.
-
-| Site | Domain | Unit System | Notes |
-|------|--------|-------------|-------|
-| RecipeTin Eats | recipetineats.com | Metric-first | Australian; clean @graph LD+JSON |
-| The Woks of Life | thewoksoflife.com | Imperial | Chinese family cooking; cuisine_source=asian |
-| Hot Thai Kitchen | hot-thai-kitchen.com | Metric | Thai; sometimes Thai script in ingredient parens |
-| Made With Lau | madewithlau.com | Mixed | Cantonese; sometimes Chinese characters in parens |
-
-### Bot-blocked recipe sites (Cloudflare 403)
-
-Some recipe sites (e.g. **natashaskitchen.com**) sit behind Cloudflare Bot
-Management, which scores each request on its **TLS/JA3 fingerprint + IP
-reputation**, not just its headers. Node's `fetch` has a non-browser TLS
-fingerprint and Vercel runs on datacenter IPs, so `safeFetch` gets a `403` no
-matter how complete the browser header set is. `safe-fetch.ts`'s
-`BROWSER_FINGERPRINT_HEADERS` are necessary for header-only sniffers but **cannot
-clear a TLS+IP challenge** — header spoofing alone is a dead end for these sites
-(an earlier header-only fix, #41, did not work).
-
-The fix mirrors the Instagram playbook: when the direct fetch returns a
-bot-mitigation status (`403`/`429`/`503`), `/api/extract` re-fetches the page HTML
-via `fetchPageHtmlViaScraper` (`src/lib/extractors/page-scraper.ts`), which runs
-the Apify **Website Content Crawler** in a real browser behind a **residential
-proxy** and returns the rendered HTML. That HTML then flows through the normal
-schema.org → LLM extraction path unchanged. Uses the same `APIFY_TOKEN` as the
-Instagram scraper; returns `null` (→ clear error + paste fallback) when
-unconfigured or the scrape yields nothing. A plain `404` does **not** trigger the
-scraper (nothing to recover).
-
-### Instagram reels
-
-Instagram pages have no recipe JSON-LD, so `/api/extract` detects Instagram URLs
-(`isInstagramUrl`) and branches to `src/lib/extractors/instagram.ts` instead of the
-schema.org → body-text path. The assumption is that the **reel caption contains the full
-recipe**. Flow: `fetchInstagramMedia(url)` (scraper → `{ caption, videoUrl }`) →
-`looksLikeRecipe(caption)` heuristic gate (recipe keyword OR ≥3 quantity+unit matches; rejects
-non-recipe captions before spending an LLM call) → `extractWithLlm(caption, url)`. `cuisine_source`
-is `unknown`.
-
-**Fetching goes through a scraper, not our IP.** Instagram login-walls *both* the caption and the
-video for requests from datacenter IPs (Vercel's), and a personal `sessionid` cookie from such an
-IP is both fragile (expires, and the IP is still flagged) and risky to the account it belongs to.
-So reel fetching is delegated to a third-party scraper that runs on its own residential infra —
-no Instagram account of ours is involved. `src/lib/extractors/instagram-scraper.ts` exposes
-`fetchInstagramMedia(url): { caption, videoUrl } | null`, backed by Apify's maintained
-`apify/instagram-scraper` actor via its synchronous run endpoint (one POST returns the caption +
-CDN MP4 URL). It reads `APIFY_TOKEN`; the provider sits behind the `InstagramMedia` interface so a
-faster RapidAPI endpoint can be dropped in without touching callers. Returns `null` (→ clear error
-+ paste fallback) when unconfigured or the reel is unreadable.
-
-**Audio fallback.** Many creators narrate the method instead of writing it. When the caption is
-absent/incomplete, `extractFromInstagramWithAudio(url, onStatus)` uses the scraper's `videoUrl`,
-downloads it (`binaryFetch`, 24 MB cap), transcribes it with Groq Whisper (`transcribeWithWhisper`,
-`whisper-large-v3`), and runs the transcript through the same LLM extractor. It degrades
-gracefully: if audio fails but the caption gave a partial recipe, the partial is saved rather
-than erroring.
-
-**Manual caption paste (the $0 fallback).** `/api/extract` also accepts `{ text }` (optionally with
-`url`): the pasted caption skips all fetching and goes straight to `extractWithLlm` — unblockable by
-Instagram. The home importer (`AddRecipeForm`) exposes a "Paste the caption instead" box and
-auto-opens it when an import errors. When `url` is given it's kept as the recipe's source link (and
-dedupe key); otherwise a unique `paste:<uuid>` url is synthesized.
-
-Every step logs a `[IG] …` line (`console.error` → Vercel logs) and emits a human-readable
-`onStatus` message (→ SSE → UI), so a failed import shows exactly which stage broke.
-
-> **Operational note:** `APIFY_TOKEN` is a personal Apify API token (console.apify.com → Settings →
-> API & Integrations). The free tier ($5/mo platform credit) easily covers personal use. If reel
-> imports start failing, check the Apify run logs / remaining credit — or just paste the caption.
-> Without the token set, reel imports fail with a clear error pointing to the paste box (never a
-> bad recipe).
-
-## Canonical Ingredient Registry
-
-`src/data/ingredients.json` — ~300 entries. Schema version: `1.0.0`.
-
-Two distinct IDs for soy sauce disambiguation:
-- `soy_sauce_light` — Chinese-cuisine sources (woksoflife.com, madewithlau.com, hot-thai-kitchen.com)
-- `soy_sauce_all_purpose` — Western sources (recipetineats.com etc.)
-
-Heuristic: unqualified "soy sauce" → `soy_sauce_light` if `cuisine_source === 'asian'`.
-
-## API Routes
-
-| Route | Method | Body | Response | Note |
-|-------|--------|------|----------|------|
-| `/api/extract` | POST | `{ url? , text? }` | SSE: `status` / `result {recipe, saved}` / `error` | URL → fetch+extract (websites schema.org, IG via scraper); `text` → extract pasted caption with no fetch. Auto-saves (saved=false if DB unreachable) |
-| `/api/normalize` | POST | `{ ingredients[], cuisine_source }` | `NormalizedIngredient[]` | Calls Claude in batch for unknowns |
-| `/api/grocery-list` | POST | `{ recipes: [{ recipe, target_servings }] }` | `{ items, grouped_by_aisle }` | Full pipeline |
-| `/api/recipes` | GET | — | `{ recipes: RecipeSummary[] }` | Saved-recipe library list |
-| `/api/recipes/[id]` | GET | — | `{ recipe }` | Full saved recipe |
-| `/api/recipes/[id]` | PUT | `{ title?, base_servings?, ingredients?, instructions?, notes? }` | `{ recipe }` | Persist user edits; flags the recipe `edited` |
-| `/api/recipes/[id]` | DELETE | — | `{ ok: true }` | Remove from library |
-| `/api/admin/login` | POST | `{ password }` | `{ ok: true }` \| 401 \| 500 | Sets HMAC-signed HttpOnly `sc_admin` cookie; 500 when `ADMIN_SESSION_SECRET` is misconfigured |
-| `/api/admin/logout` | POST | — | 303 redirect to `/` | Clears the session cookie |
-
-**Admin gate**: `POST /api/extract` and `PUT`/`DELETE /api/recipes/[id]` all
-return `403 Forbidden` without a valid `sc_admin` cookie. All `GET` routes plus
-`POST /api/normalize` and `POST /api/grocery-list` stay public so viewers can
-browse the library and build grocery lists from saved recipes. The single guard
-is `requireAdmin()` in `src/lib/auth.ts` — new write endpoints should call it
-too.
-
-## Recipe Library (Postgres + Prisma)
-
-`prisma/schema.prisma` — one `recipes` table; `ingredients`/`instructions` are JSONB
-documents (the app only consumes whole `Recipe` objects, nothing queries inside the
-JSON). `url` is unique for dedupe; `/api/extract` upserts by normalized URL (trailing
-slash, utm params, and hash stripped) and keeps the existing row's id on re-extract.
-
-**User customization persists.** Recipes carry a nullable `notes` column and an
-`edited` boolean. `PUT /api/recipes/[id]` → `updateRecipe()` saves edits
-(title/servings/ingredients/instructions/notes) and sets `edited = true`. Once a
-recipe is `edited`, `upsertRecipeByUrl()` treats a re-extract of the same URL as a
-no-op so the user's customization is never clobbered. (Edited ingredient `raw_text`
-is re-parsed client-side via `parseIngredient()` and `canonical_id` reset to null so
-the grocery pipeline re-normalizes.)
-
-All DB access goes through `src/lib/db/recipes.ts` — the single place to add a
-`userId` filter when multi-user lands (plus one migration: `url @unique` →
-`@@unique([url, user_id])`; the nullable `user_id` column already exists).
-
-## Unit Conversions (base units: ml, g, each)
-
-| Unit | → ml | | Unit | → g |
-|------|------|-|------|-----|
-| tsp | 4.929 | | oz | 28.3495 |
-| tbsp | 14.787 | | lb | 453.592 |
-| fl oz | 29.574 | | kg | 1000 |
-| cup | 236.588 | | g | 1 |
-| pint | 473.176 | | | |
-| L | 1000 | | | |
-
-Special: stick of butter = 113g; 1 inch ginger ≈ 6g.
-
-**Output units are always metric (ml, g, kg) or cups/spoons — never oz/lb.**
-Imperial units (oz, lb) are parsed on the *input* side because imperial recipes
-(e.g. The Woks of Life) are written that way, but every `default_purchase_unit`
-in the registry resolves to a metric or cup/spoon unit, so the grocery list a
-user copies out never contains oz or lb. Enforced by a regression test in
-`tests/pipeline.test.ts`.
-
-## Aisle Taxonomy
-
-`produce` | `meat` | `seafood` | `dairy` | `deli` | `bakery` | `frozen` | `asian_grocery` | `pantry` | `condiments` | `beverages` | `other`
-
-`asian_grocery` is intentionally separate from `pantry` — many shopping trips genuinely split across two stores.
-
-## Implementation Status
-
-- [x] Task 1: Project scaffold + CLAUDE.md
-- [x] Task 2: Type definitions
-- [x] Task 3: Unit conversion + parser
-- [x] Task 4: Canonical ingredient registry
-- [x] Task 5: Text cleaning + normalization lookup
-- [x] Task 6: Schema.org extractor + test fixtures
-- [x] Task 7: LLM normalization fallback
-- [x] Task 8: Pipeline (extract + normalize + aggregate + purchase)
-- [x] Task 9: API routes
-- [x] Task 10: localStorage helpers
-- [x] Task 11: UI components + main page
-- [x] Task 12: Integration tests + final CLAUDE.md update
-- [x] Task 13: Cooking-step extraction (`Recipe.instructions`)
-- [x] Task 14: Shared recipe library (Postgres + Prisma, `/api/recipes`, auto-save on extract)
-- [x] Task 15: Library picker UI + recipe detail view
-- [x] Task 16: Instagram reel import (caption extraction + recipe heuristic gate)
-- [x] Task 17: Instagram audio fallback (Groq Whisper transcription)
-- [x] Task 18: Scraper-based reel fetch (`APIFY_TOKEN`) + manual caption-paste fallback; drop personal `IG_SESSIONID`
-- [x] Task 19: Residential-scraper HTML fallback for bot-blocked recipe sites (Cloudflare 403 → Apify Website Content Crawler)
-- [x] Task 20: Recipe sections — preserve ingredient/instruction group labels (`section`) end-to-end; render grouped in detail/editor UIs
-- [x] Task 21: View-only mode — shared-password admin auth (HMAC-signed cookie, no auth deps); browsing stays fully public, only add/edit/delete are gated (`ADMIN_PASSWORD` + `ADMIN_SESSION_SECRET`, `/admin/login`, `requireAdmin()` guard on the 3 write endpoints)
+- `.claude/rules/api-and-auth.md` — full API route table + admin gate details. Loads on `src/app/api/**` and `src/lib/auth.ts`.
+- `.claude/rules/prisma-db.md` — schema, upsert flow, edit-guard, multi-user path. Loads on `prisma/**` and `src/lib/db/**`.
+- `.claude/rules/data-model.md` — full TS type definitions. Loads on types, pipeline, extractors, normalizers, `prisma/schema.prisma`.
+- `.claude/rules/extractors.md` — Instagram reel flow, Cloudflare/Apify blocked-site fallback, section extraction. Loads on `src/lib/extractors/**` and `src/lib/recipe/sections.ts`.
+- `.claude/rules/normalization.md` — units, aisles, canonical ingredient registry, soy-sauce disambiguation. Loads on `src/lib/registry|normalizers|units|pipeline` and `src/data/ingredients.json`.
+- `.claude/rules/testing.md` — 16-suite index + 10-step manual verification checklist. Loads on `tests/**` and `**/*.test.ts`.
