@@ -22,7 +22,7 @@ export default function SiteHeader({ isAdmin = false }: { isAdmin?: boolean }) {
           </div>
         </Link>
         <div className="flex items-center gap-2">
-          {isAdmin && (
+          {isAdmin ? (
             <>
               <span className="text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
                 Admin
@@ -36,6 +36,13 @@ export default function SiteHeader({ isAdmin = false }: { isAdmin?: boolean }) {
                 </button>
               </form>
             </>
+          ) : (
+            <Link
+              href="/admin/login"
+              className="px-2 py-1 text-xs font-medium rounded-lg border border-stone-300 text-stone-600 hover:bg-stone-50 transition-colors whitespace-nowrap"
+            >
+              Admin sign in
+            </Link>
           )}
           <Link
             href="/grocery-list"

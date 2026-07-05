@@ -1,13 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 
 export default function AdminLoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -23,17 +21,17 @@ export default function AdminLoginPage() {
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setError(data.error ?? "Login failed");
+        setLoading(false);
         return;
       }
-      // Invalidate the RSC cache first so the layout re-runs with the new
-      // cookie; only then navigate. Reversing the order lets `push` commit
-      // against the pre-login cached tree and the admin UI stays hidden until
-      // a hard reload.
-      router.refresh();
-      router.push("/");
+      // Hard-navigate so the RootLayout re-executes with the new sc_admin
+      // cookie. router.push + router.refresh keeps the Next.js router cache
+      // entry for `/` around, and the header stays on the pre-login RSC
+      // payload — so the "Admin sign in" button doesn't disappear until a
+      // manual reload.
+      window.location.href = "/";
     } catch {
       setError("Network error — please try again");
-    } finally {
       setLoading(false);
     }
   }
