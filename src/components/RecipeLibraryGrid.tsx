@@ -41,7 +41,7 @@ export default function RecipeLibraryGrid() {
         if (!res.ok) throw new Error(data.error ?? "Failed to load library");
         if (!cancelled) setSummaries(data.recipes);
       } catch {
-        if (!cancelled) setError("Your saved recipes are unavailable right now.");
+        if (!cancelled) setError("Recipes are unavailable right now.");
       }
     })();
     return () => {
@@ -117,7 +117,7 @@ export default function RecipeLibraryGrid() {
   }
 
   if (!summaries) {
-    return <p className="text-sm text-stone-400 mt-6">Loading your recipes…</p>;
+    return <p className="text-sm text-stone-400 mt-6">Loading recipes…</p>;
   }
 
   if (summaries.length === 0) {
@@ -130,11 +130,20 @@ export default function RecipeLibraryGrid() {
     );
   }
 
+  // Saved-for-later recipes sink below tried-and-tested ones (admins are the
+  // only viewers who receive them); the stable sort keeps createdAt-desc order
+  // within each group.
+  const ordered = [...summaries].sort(
+    (a, b) =>
+      Number(a.status === "saved_for_later") -
+      Number(b.status === "saved_for_later")
+  );
+
   return (
     <div className="mt-6">
       {error && <p className="text-xs text-red-500 mb-2">{error}</p>}
       <div className="grid gap-3 sm:grid-cols-2">
-        {summaries.map((summary) => (
+        {ordered.map((summary) => (
           // Card is a plain container; the title is the real link. The delete
           // button is a sibling (not nested in an <a>), keeping the markup valid.
           <div
