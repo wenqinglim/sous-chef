@@ -11,7 +11,7 @@
 
 import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import type { Recipe } from "@/types";
+import type { Recipe, RecipeStatus } from "@/types";
 import type { RecipeRow } from "@/components/RecipeForm";
 import { normalizeUrl } from "@/lib/normalize-url";
 import { useIsAdmin } from "@/components/AdminProvider";
@@ -23,7 +23,7 @@ interface RecipeSummary {
   base_servings: number;
   ingredient_count: number;
   has_instructions: boolean;
-  status: "tried_and_tested" | "saved_for_later";
+  status: RecipeStatus;
   created_at: string;
 }
 

@@ -15,18 +15,19 @@ import { NextResponse } from "next/server";
 import { isAdmin } from "@/lib/auth";
 import { listRecipes } from "@/lib/db/recipes";
 
+// The body varies by the admin cookie (on every branch), so nothing here may
+// be cached by an intermediary.
+const NO_STORE = { "Cache-Control": "no-store" };
+
 export async function GET() {
   try {
     const recipes = await listRecipes({ includeUntried: await isAdmin() });
-    return NextResponse.json(
-      { recipes },
-      { headers: { "Cache-Control": "no-store" } }
-    );
+    return NextResponse.json({ recipes }, { headers: NO_STORE });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
       { error: `Failed to load recipe library: ${message}` },
-      { status: 500 }
+      { status: 500, headers: NO_STORE }
     );
   }
 }

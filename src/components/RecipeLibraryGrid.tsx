@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import type { RecipeStatus } from "@/types";
 import { useIsAdmin } from "@/components/AdminProvider";
 
 interface RecipeSummary {
@@ -21,7 +22,7 @@ interface RecipeSummary {
   has_instructions: boolean;
   edited: boolean;
   has_notes: boolean;
-  status: "tried_and_tested" | "saved_for_later";
+  status: RecipeStatus;
   created_at: string;
 }
 

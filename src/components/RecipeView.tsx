@@ -8,7 +8,7 @@
  * "Customize" button that swaps in an editor.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Recipe, RecipeStatus } from "@/types";
@@ -32,6 +32,12 @@ export default function RecipeView({ recipe, onCustomize }: Props) {
   );
   const [statusSaving, setStatusSaving] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
+
+  // Local state exists only for the optimistic toggle; resync it whenever the
+  // prop changes (recipe swap or parent refetch) so it can't go stale.
+  useEffect(() => {
+    setStatus(recipe.status ?? "saved_for_later");
+  }, [recipe.id, recipe.status]);
   const instructions = normalizeInstructions(recipe.instructions);
   const ingredientGroups = groupBySection(recipe.ingredients, (i) => i.section);
   const instructionGroups = groupBySection(instructions, (s) => s.section);
