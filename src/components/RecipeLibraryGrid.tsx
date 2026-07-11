@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import type { RecipeStatus } from "@/types";
 import { useIsAdmin } from "@/components/AdminProvider";
 
 interface RecipeSummary {
@@ -21,6 +22,7 @@ interface RecipeSummary {
   has_instructions: boolean;
   edited: boolean;
   has_notes: boolean;
+  status: RecipeStatus;
   created_at: string;
 }
 
@@ -69,6 +71,42 @@ export default function RecipeLibraryGrid() {
       );
     } catch {
       setError("Couldn't delete that recipe — try again.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleToggleStatus(
+    e: React.MouseEvent,
+    summary: RecipeSummary
+  ) {
+    // The card is a link; don't navigate when toggling.
+    e.preventDefault();
+    e.stopPropagation();
+
+    const next =
+      summary.status === "saved_for_later"
+        ? "tried_and_tested"
+        : "saved_for_later";
+    setError(null);
+    setBusyId(summary.id);
+    try {
+      const res = await fetch(`/api/recipes/${summary.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: next }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error ?? "Failed to update status");
+      }
+      setSummaries((prev) =>
+        prev
+          ? prev.map((s) => (s.id === summary.id ? { ...s, status: next } : s))
+          : prev
+      );
+    } catch {
+      setError("Couldn't update that recipe's status — try again.");
     } finally {
       setBusyId(null);
     }
@@ -131,8 +169,22 @@ export default function RecipeLibraryGrid() {
               {summary.has_instructions ? " · steps saved" : ""}
             </div>
 
-            {(summary.edited || summary.has_notes) && (
+            {(summary.edited ||
+              summary.has_notes ||
+              (isAdmin && summary.status === "saved_for_later")) && (
               <div className="mt-2 flex gap-1.5">
+                {/* Non-admins only ever receive tried_and_tested rows, so this
+                    toggle never renders for them. */}
+                {isAdmin && summary.status === "saved_for_later" && (
+                  <button
+                    onClick={(e) => handleToggleStatus(e, summary)}
+                    disabled={busyId === summary.id}
+                    title="Mark as tried & tested"
+                    className="relative z-10 text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-stone-100 text-stone-600 border border-stone-200 hover:border-amber-400 hover:text-amber-700 transition-colors disabled:opacity-40"
+                  >
+                    Saved for later
+                  </button>
+                )}
                 {summary.edited && (
                   <span className="text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
                     Customized

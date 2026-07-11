@@ -27,6 +27,7 @@ import {
   listRecipes,
   normalizeUrl,
   rowToRecipe,
+  setRecipeStatus,
   updateRecipe,
   upsertRecipeByUrl,
   withRecipeId,
@@ -84,6 +85,7 @@ function makeRow(overrides: Record<string, unknown> = {}) {
     instructions: ["Chop the garlic."],
     notes: null,
     edited: false,
+    status: "tried_and_tested",
     parsedAt: new Date("2026-06-10T00:00:00.000Z"),
     userId: null,
     createdAt: new Date("2026-06-10T01:00:00.000Z"),
@@ -122,7 +124,17 @@ describe("rowToRecipe", () => {
       instructions: [{ text: "Chop the garlic.", section: null }],
       notes: null,
       edited: false,
+      status: "tried_and_tested",
     });
+  });
+
+  test("missing or garbage status falls back to 'saved_for_later'", () => {
+    expect(rowToRecipe(makeRow({ status: undefined }) as never).status).toBe(
+      "saved_for_later"
+    );
+    expect(rowToRecipe(makeRow({ status: "cooked??" }) as never).status).toBe(
+      "saved_for_later"
+    );
   });
 
   test("tolerates non-array instructions (pre-feature rows) → []", () => {
@@ -278,6 +290,20 @@ describe("upsertRecipeByUrl", () => {
       where: { url: "https://example.com/recipe" },
     });
   });
+
+  test("never writes status — re-extract keeps it, create takes the DB default", async () => {
+    mockRecipe.findUnique.mockResolvedValue(makeRow({ id: "old-id" }));
+    mockRecipe.upsert.mockImplementation(
+      ({ update }: { update: Record<string, unknown> }) =>
+        Promise.resolve(makeRow({ id: "old-id", ...update }))
+    );
+
+    await upsertRecipeByUrl(makeRecipe({ id: "fresh-id" }));
+
+    const call = mockRecipe.upsert.mock.calls[0][0];
+    expect(call.update).not.toHaveProperty("status");
+    expect(call.create).not.toHaveProperty("status");
+  });
 });
 
 // ─── listRecipes / deleteRecipe ───────────────────────────────────────────────
@@ -394,9 +420,6 @@ describe("listRecipes", () => {
   test("maps rows to summaries, newest first", async () => {
     mockRecipe.findMany.mockResolvedValue([makeRow()]);
     const summaries = await listRecipes();
-    expect(mockRecipe.findMany).toHaveBeenCalledWith({
-      orderBy: { createdAt: "desc" },
-    });
     expect(summaries).toEqual([
       {
         id: "row-id",
@@ -407,9 +430,28 @@ describe("listRecipes", () => {
         has_instructions: true,
         edited: false,
         has_notes: false,
+        status: "tried_and_tested",
         created_at: "2026-06-10T01:00:00.000Z",
       },
     ]);
+  });
+
+  test("defaults to tried_and_tested only (fail closed for public callers)", async () => {
+    mockRecipe.findMany.mockResolvedValue([]);
+    await listRecipes();
+    expect(mockRecipe.findMany).toHaveBeenCalledWith({
+      where: { status: "tried_and_tested" },
+      orderBy: { createdAt: "desc" },
+    });
+  });
+
+  test("includeUntried lifts the status filter (admin callers)", async () => {
+    mockRecipe.findMany.mockResolvedValue([]);
+    await listRecipes({ includeUntried: true });
+    expect(mockRecipe.findMany).toHaveBeenCalledWith({
+      where: undefined,
+      orderBy: { createdAt: "desc" },
+    });
   });
 
   test("empty instructions → has_instructions false", async () => {
@@ -431,6 +473,41 @@ describe("listRecipes", () => {
     mockRecipe.findMany.mockResolvedValue([makeRow({ notes: "   " })]);
     const [summary] = await listRecipes();
     expect(summary.has_notes).toBe(false);
+  });
+});
+
+describe("setRecipeStatus", () => {
+  test("writes exactly { status } — never flips edited", async () => {
+    mockRecipe.update.mockImplementation(
+      ({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve(makeRow({ status: data.status }))
+    );
+
+    const result = await setRecipeStatus("row-id", "saved_for_later");
+
+    expect(mockRecipe.update).toHaveBeenCalledWith({
+      where: { id: "row-id" },
+      data: { status: "saved_for_later" },
+    });
+    expect(result?.status).toBe("saved_for_later");
+    expect(result?.edited).toBe(false);
+  });
+
+  test("returns null when the record does not exist (P2025)", async () => {
+    mockRecipe.update.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Record not found", {
+        code: "P2025",
+        clientVersion: "6.0.0",
+      })
+    );
+    expect(await setRecipeStatus("missing", "tried_and_tested")).toBeNull();
+  });
+
+  test("propagates non-P2025 errors", async () => {
+    mockRecipe.update.mockRejectedValue(new Error("connection refused"));
+    await expect(
+      setRecipeStatus("row-id", "tried_and_tested")
+    ).rejects.toThrow("connection refused");
   });
 });
 

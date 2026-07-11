@@ -20,6 +20,7 @@ model Recipe {
   instructions  Json // string[]
   notes         String?  @map("notes") // freeform user notes (customization)
   edited        Boolean  @default(false) @map("edited") // true once a user saves an edit; guards against re-extract clobber
+  status        String   @default("saved_for_later") @map("status") // "tried_and_tested" | "saved_for_later"; non-admins only see tried_and_tested in lists
   parsedAt      DateTime @map("parsed_at")
   userId        String?  @map("user_id") // nullable until multi-user support
   createdAt     DateTime @default(now()) @map("created_at")

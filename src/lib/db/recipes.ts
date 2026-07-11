@@ -8,7 +8,13 @@
 
 import { Prisma } from "@prisma/client";
 import type { Recipe as RecipeRow } from "@prisma/client";
-import type { CuisineSource, InstructionStep, Recipe, RecipeIngredient } from "@/types";
+import type {
+  CuisineSource,
+  InstructionStep,
+  Recipe,
+  RecipeIngredient,
+  RecipeStatus,
+} from "@/types";
 import { normalizeUrl } from "@/lib/normalize-url";
 import { normalizeInstructions } from "@/lib/recipe/sections";
 import { prisma } from "./client";
@@ -28,12 +34,19 @@ export interface RecipeSummary {
   edited: boolean;
   /** True when the recipe has non-empty user notes */
   has_notes: boolean;
+  /** Curation status; non-admin list requests only ever see "tried_and_tested" */
+  status: RecipeStatus;
   created_at: string;
 }
 
 // ─── Pure mappers (exported for tests; no DB access) ─────────────────────────
 
 const CUISINE_SOURCES: CuisineSource[] = ["asian", "western", "unknown"];
+
+/** Tolerant status read: rows predating the column (or with garbage) fail closed. */
+function rowStatus(status: unknown): RecipeStatus {
+  return status === "tried_and_tested" ? "tried_and_tested" : "saved_for_later";
+}
 
 /**
  * Map a DB row to the app's Recipe document. Tolerant reads: JSONB payloads
@@ -58,6 +71,7 @@ export function rowToRecipe(row: RecipeRow): Recipe {
     instructions: normalizeInstructions(row.instructions),
     notes: row.notes ?? null,
     edited: row.edited ?? false,
+    status: rowStatus(row.status),
   };
 }
 
@@ -73,6 +87,8 @@ export function withRecipeId(recipe: Recipe, id: string): Recipe {
   };
 }
 
+// Deliberately excludes curation metadata (notes, edited, status): a re-extract
+// upsert must never clobber those, and creates take the DB defaults.
 function toRowData(recipe: Recipe, url: string) {
   return {
     url,
@@ -88,11 +104,17 @@ function toRowData(recipe: Recipe, url: string) {
 
 // ─── Repository functions ─────────────────────────────────────────────────────
 
-export async function listRecipes(): Promise<RecipeSummary[]> {
+export async function listRecipes(
+  options: { includeUntried?: boolean } = {}
+): Promise<RecipeSummary[]> {
   // Fetches whole rows (incl. JSONB) to compute the counts — Prisma can't
   // take jsonb_array_length without raw SQL. Fine at personal-library scale;
   // revisit with $queryRaw if libraries grow into the hundreds.
+  //
+  // includeUntried defaults to false (fail closed): public callers only ever
+  // see tried_and_tested recipes; the route opts in for admins.
   const rows = await prisma.recipe.findMany({
+    where: options.includeUntried ? undefined : { status: "tried_and_tested" },
     orderBy: { createdAt: "desc" },
   });
   return rows.map((row) => ({
@@ -107,6 +129,7 @@ export async function listRecipes(): Promise<RecipeSummary[]> {
       Array.isArray(row.instructions) && row.instructions.length > 0,
     edited: row.edited ?? false,
     has_notes: typeof row.notes === "string" && row.notes.trim().length > 0,
+    status: rowStatus(row.status),
     created_at: row.createdAt.toISOString(),
   }));
 }
@@ -127,6 +150,9 @@ export async function getRecipe(id: string): Promise<Recipe | null> {
  * persisted via updateRecipe(); see that function and PUT /api/recipes/[id].
  * Returns the recipe as stored, with ingredient recipe_ids rewritten to the
  * surviving id.
+ *
+ * Curation status is never written here (see toRowData): a re-extract keeps
+ * the stored status, and a fresh save takes the DB default (saved_for_later).
  */
 export async function upsertRecipeByUrl(recipe: Recipe): Promise<Recipe> {
   const url = normalizeUrl(recipe.url);
@@ -187,6 +213,31 @@ export async function updateRecipe(
 
   try {
     const row = await prisma.recipe.update({ where: { id }, data });
+    return rowToRecipe(row);
+  } catch (err) {
+    // P2025 = record not found → null; other errors propagate (→ 500)
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2025"
+    ) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Set the tried/saved curation status. Deliberately separate from
+ * updateRecipe(): status is metadata, not a content edit, so it must NOT flip
+ * `edited` (which would show "Customized" and block re-extract refresh).
+ * Returns the updated Recipe, or null if no row matches `id`.
+ */
+export async function setRecipeStatus(
+  id: string,
+  status: RecipeStatus
+): Promise<Recipe | null> {
+  try {
+    const row = await prisma.recipe.update({ where: { id }, data: { status } });
     return rowToRecipe(row);
   } catch (err) {
     // P2025 = record not found → null; other errors propagate (→ 500)

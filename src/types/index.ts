@@ -62,6 +62,9 @@ export interface InstructionStep {
   section?: string | null;
 }
 
+/** Curation status: "saved_for_later" until the admin marks a recipe tried. */
+export type RecipeStatus = "tried_and_tested" | "saved_for_later";
+
 export interface Recipe {
   id: string;
   url: string;
@@ -78,6 +81,8 @@ export interface Recipe {
   notes?: string | null;
   /** True once a user has saved a manual edit; guards against re-extract clobber */
   edited?: boolean;
+  /** Curation status; drives public list filtering. Absent on freshly extracted (unsaved) recipes. */
+  status?: RecipeStatus;
 }
 
 // ─── Meal Plan ────────────────────────────────────────────────────────────────

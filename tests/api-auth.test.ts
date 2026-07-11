@@ -17,6 +17,7 @@ jest.mock("next/headers", () => ({ cookies: jest.fn() }));
 jest.mock("@/lib/db/client", () => ({
   prisma: {
     recipe: {
+      findMany: jest.fn(),
       findUnique: jest.fn(),
       upsert: jest.fn(),
       update: jest.fn(),
@@ -34,14 +35,17 @@ import { cookies } from "next/headers";
 import { POST as extractPOST } from "@/app/api/extract/route";
 import {
   DELETE as recipeDELETE,
+  PATCH as recipePATCH,
   PUT as recipePUT,
   GET as recipeGET,
 } from "@/app/api/recipes/[id]/route";
+import { GET as recipesListGET } from "@/app/api/recipes/route";
 import { prisma } from "@/lib/db/client";
 import { SESSION_COOKIE_NAME, newSession } from "@/lib/auth";
 
 const mockCookies = cookies as unknown as jest.Mock;
 const mockRecipe = prisma.recipe as unknown as {
+  findMany: jest.Mock;
   findUnique: jest.Mock;
   upsert: jest.Mock;
   update: jest.Mock;
@@ -84,6 +88,27 @@ function jsonRequest(url: string, method: string, body: unknown) {
 }
 
 const paramsFor = (id: string) => ({ params: Promise.resolve({ id }) });
+
+// Minimal valid DB row for handlers whose success path maps via rowToRecipe.
+function makeRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "xyz",
+    url: "https://example.com/recipe",
+    title: "Test Recipe",
+    baseServings: 4,
+    cuisineSource: "western",
+    ingredients: [],
+    instructions: [],
+    notes: null,
+    edited: false,
+    status: "tried_and_tested",
+    parsedAt: new Date("2026-06-10T00:00:00.000Z"),
+    userId: null,
+    createdAt: new Date("2026-06-10T01:00:00.000Z"),
+    updatedAt: new Date("2026-06-10T01:00:00.000Z"),
+    ...overrides,
+  };
+}
 
 describe("POST /api/extract", () => {
   test("returns 403 for anonymous callers", async () => {
@@ -133,6 +158,92 @@ describe("PUT /api/recipes/[id]", () => {
       paramsFor("xyz")
     );
     expect(res.status).not.toBe(403);
+  });
+
+  test("a status-only body is rejected — status can't sneak in and flip `edited`", async () => {
+    mockCookies.mockResolvedValue(adminCookies());
+    const res = await recipePUT(
+      jsonRequest("http://localhost/api/recipes/xyz", "PUT", {
+        status: "tried_and_tested",
+      }),
+      paramsFor("xyz")
+    );
+    // Zod strips the unknown key, leaving an empty (no-op) patch → 400.
+    expect(res.status).toBe(400);
+    expect(mockRecipe.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("PATCH /api/recipes/[id] (status)", () => {
+  test("returns 403 for anonymous callers", async () => {
+    mockCookies.mockResolvedValue(anonymousCookies());
+    const res = await recipePATCH(
+      jsonRequest("http://localhost/api/recipes/xyz", "PATCH", {
+        status: "tried_and_tested",
+      }),
+      paramsFor("xyz")
+    );
+    expect(res.status).toBe(403);
+    expect(mockRecipe.update).not.toHaveBeenCalled();
+  });
+
+  test("admin can set the status; the write never touches `edited`", async () => {
+    mockCookies.mockResolvedValue(adminCookies());
+    mockRecipe.update.mockResolvedValue(makeRow({ status: "saved_for_later" }));
+    const res = await recipePATCH(
+      jsonRequest("http://localhost/api/recipes/xyz", "PATCH", {
+        status: "saved_for_later",
+      }),
+      paramsFor("xyz")
+    );
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.recipe.status).toBe("saved_for_later");
+    expect(mockRecipe.update).toHaveBeenCalledWith({
+      where: { id: "xyz" },
+      data: { status: "saved_for_later" },
+    });
+  });
+
+  test("rejects an invalid status value with 400", async () => {
+    mockCookies.mockResolvedValue(adminCookies());
+    const res = await recipePATCH(
+      jsonRequest("http://localhost/api/recipes/xyz", "PATCH", {
+        status: "delicious",
+      }),
+      paramsFor("xyz")
+    );
+    expect(res.status).toBe(400);
+    expect(mockRecipe.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/recipes (status filtering)", () => {
+  test("anonymous callers only get tried_and_tested recipes", async () => {
+    mockCookies.mockResolvedValue(anonymousCookies());
+    mockRecipe.findMany.mockResolvedValue([makeRow()]);
+    const res = await recipesListGET();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(mockRecipe.findMany).toHaveBeenCalledWith({
+      where: { status: "tried_and_tested" },
+      orderBy: { createdAt: "desc" },
+    });
+  });
+
+  test("admin callers get the full library (no status filter)", async () => {
+    mockCookies.mockResolvedValue(adminCookies());
+    mockRecipe.findMany.mockResolvedValue([
+      makeRow({ status: "saved_for_later" }),
+    ]);
+    const res = await recipesListGET();
+    expect(res.status).toBe(200);
+    expect(mockRecipe.findMany).toHaveBeenCalledWith({
+      where: undefined,
+      orderBy: { createdAt: "desc" },
+    });
+    const data = await res.json();
+    expect(data.recipes[0].status).toBe("saved_for_later");
   });
 });
 
