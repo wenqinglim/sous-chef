@@ -7,14 +7,14 @@ paths:
 
 # Testing
 
-`npm test` — 432 tests across 16 suites; Prisma is mocked (no DB needed).
+`npm test` — 446 tests across 16 suites; Prisma is mocked (no DB needed).
 
 ## Suite map
 
 | Suite | Covers |
 |---|---|
 | `tests/auth.test.ts` | Session HMAC (sign/verify, tamper, expiry, non-hex, missing/short secret) + `verifyPassword` (correct/wrong, unset, timing-safe, missing-secret throws) + `isAdmin()` with mocked `next/headers` cookies. |
-| `tests/api-auth.test.ts` | `POST /api/extract`, `PUT`/`DELETE /api/recipes/[id]` return 403 for anonymous; `GET /api/recipes/[id]` stays public; valid signed cookie passes the guard. |
+| `tests/api-auth.test.ts` | `POST /api/extract`, `PUT`/`PATCH`/`DELETE /api/recipes/[id]` return 403 for anonymous; `GET /api/recipes/[id]` stays public; valid signed cookie passes the guard; `GET /api/recipes` filters saved_for_later for non-admins; PUT rejects status-only bodies; PATCH validates the status enum. |
 | `tests/units.test.ts` | Unit conversions + ingredient text parser, incl. mixed/unicode ranges. |
 | `tests/normalization.test.ts` | Registry lookup, alias matching, soy sauce disambiguation, messy-name robustness. |
 | `tests/extraction.test.ts` | Schema.org extraction for all 4 target sites + `parseInstructions` for every JSON-LD instruction shape (incl. `HowToSection` → step section labels) + `extractIngredientGroups`/`assignIngredientSections` (WPRM + Tasty Recipes ingredient-group HTML → ingredient sections). |
@@ -28,13 +28,14 @@ paths:
 | `tests/rescale.test.ts` | Ingredient quantity rescaling by servings. |
 | `tests/pipeline.test.ts` | Aggregate + purchase planning + full `derive()`; purchase-unit + slice→weight + metric-output regressions. |
 | `tests/safe-fetch.test.ts` | SSRF protections. |
-| `tests/recipes-repo.test.ts` | Recipe repository mappers + mocked-Prisma flows (upsert id retention, URL dedupe, summaries, `updateRecipe` edits, edited-recipe re-extract guard). |
+| `tests/recipes-repo.test.ts` | Recipe repository mappers + mocked-Prisma flows (upsert id retention, URL dedupe, summaries, `updateRecipe` edits, edited-recipe re-extract guard, status filtering in `listRecipes`, `setRecipeStatus` never flips `edited`, upsert never writes status). |
 
 ## Manual verification checklist (before releasing a UI change)
 
 0. **Library home**: on `/`, paste a RecipeTin Eats URL into "Add a recipe" → lands on `/recipes/[id]`; card appears on `/`.
 1. **Detail view**: open a saved recipe → title, ingredients, numbered steps render; "View original recipe ↗" opens `recipe.url` in new tab.
 1a. **Customize**: "✏️ Customize" → edit an ingredient, add/remove a step, add a note → Save → reload: edits persist, "Customized" badge shows. Re-importing same URL no longer overwrites.
+1b. **Status**: as admin, import a new recipe → "Saved for later" badge on its card; card badge (or detail-page button) toggles it to tried & tested; in an incognito window only tried & tested recipes appear on `/` and in the grocery picker, but a direct link to a saved-for-later recipe still renders (with badge). Toggling status must NOT add the "Customized" badge.
 2. **Single recipe (grocery)**: "Add to grocery list" → on `/grocery-list`, set 4 servings → ingredients render in review step.
 3. **Scaling**: change servings to 6 → quantities reflect `target_servings`, not `base_servings`.
 4. **Multi-recipe**: add a Woks of Life recipe alongside RecipeTin Eats → shared ingredients (garlic) aggregate into one line.

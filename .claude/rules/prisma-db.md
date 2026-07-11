@@ -19,6 +19,13 @@ paths:
 - Once `edited = true`, `upsertRecipeByUrl()` treats a re-extract of the same URL as a **no-op** so the user's customisation is never clobbered.
 - Edited ingredient `raw_text` is re-parsed client-side via `parseIngredient()`, and `canonical_id` is reset to `null` so the grocery pipeline re-normalises.
 
+## Curation status
+
+- `status` column: `"tried_and_tested" | "saved_for_later"`, defaults to `saved_for_later` for new imports (the 20260711 migration backfilled pre-existing rows to `tried_and_tested`).
+- `listRecipes()` filters to `tried_and_tested` unless called with `{ includeUntried: true }` (admin-only, decided by the route via `isAdmin()`).
+- Status is set via `setRecipeStatus()` / `PATCH /api/recipes/[id]` — never through `updateRecipe()`, so it does **not** flip `edited`.
+- `upsertRecipeByUrl()` never writes `status` (excluded from `toRowData`), so a re-extract keeps the stored status.
+
 ## Multi-user migration path (single-user for now)
 
 All DB access goes through `src/lib/db/recipes.ts` — the single place to add a `userId` filter when multi-user lands. The nullable `user_id` column already exists. Migration when the time comes: `url @unique` → `@@unique([url, user_id])`.

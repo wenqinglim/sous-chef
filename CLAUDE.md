@@ -28,7 +28,7 @@ Next.js 15 App Router · TypeScript · Tailwind · Postgres (Neon) + Prisma 6 ·
 npm install
 npm run db:deploy     # apply Prisma migrations
 npm run dev           # http://localhost:3000
-npm test              # 432 tests; no DB needed (Prisma mocked)
+npm test              # 446 tests; no DB needed (Prisma mocked)
 npm run build         # prisma generate → migrate deploy → next build
 ```
 
@@ -58,7 +58,8 @@ URL → [1] Extraction        schema.org JSON-LD (cheerio) → Claude fallback �
 ## Core rules
 
 - **Single-user for now.** Nullable `user_id` reserved; all DB access goes through `src/lib/db/recipes.ts` — the single place to add a `userId` filter when multi-user lands.
-- **All write endpoints** (`POST /api/extract`, `PUT`/`DELETE /api/recipes/[id]`) must call `requireAdmin()` in `src/lib/auth.ts`.
+- **All write endpoints** (`POST /api/extract`, `PUT`/`PATCH`/`DELETE /api/recipes/[id]`) must call `requireAdmin()` in `src/lib/auth.ts`.
+- **Curation status is server-filtered.** Non-admins only get `status = "tried_and_tested"` from `GET /api/recipes`; "saved for later" recipes are admin-only in lists (direct `/recipes/[id]` links stay public by design).
 - **All LLM responses must be JSON** — never parse free text. `extractJsonText` unwraps markdown/prose-wrapped responses.
 - **Fail gracefully.** Scrapers return `null` (→ clear error + paste fallback) rather than throwing. Never hard-fail an extraction on a downstream API blip.
 

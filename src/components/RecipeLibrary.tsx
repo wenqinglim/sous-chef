@@ -23,6 +23,7 @@ interface RecipeSummary {
   base_servings: number;
   ingredient_count: number;
   has_instructions: boolean;
+  status: "tried_and_tested" | "saved_for_later";
   created_at: string;
 }
 
@@ -133,8 +134,16 @@ export default function RecipeLibrary({ rows, onRowsChange }: Props) {
               className="flex items-center gap-3 p-3 bg-stone-50 border border-stone-200 rounded-lg"
             >
               <div className="flex-1 min-w-0">
-                <div className="font-medium text-sm text-stone-900 truncate">
-                  {summary.title}
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <div className="font-medium text-sm text-stone-900 truncate">
+                    {summary.title}
+                  </div>
+                  {/* Non-admins only receive tried_and_tested rows here. */}
+                  {isAdmin && summary.status === "saved_for_later" && (
+                    <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-stone-100 text-stone-600 border border-stone-200">
+                      Saved for later
+                    </span>
+                  )}
                 </div>
                 <div className="text-xs text-stone-500 mt-0.5">
                   {summary.ingredient_count} ingredients · base{" "}

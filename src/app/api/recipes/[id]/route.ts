@@ -1,12 +1,18 @@
 /**
  * GET    /api/recipes/[id]   → { recipe: Recipe } | 404
  * PUT    /api/recipes/[id]   → { recipe: Recipe } | 404  (persists user edits)
+ * PATCH  /api/recipes/[id]   → { recipe: Recipe } | 404  (sets curation status)
  * DELETE /api/recipes/[id]   → { ok: true }       | 404
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { deleteRecipe, getRecipe, updateRecipe } from "@/lib/db/recipes";
+import {
+  deleteRecipe,
+  getRecipe,
+  setRecipeStatus,
+  updateRecipe,
+} from "@/lib/db/recipes";
 import { normalizeInstructions } from "@/lib/recipe/sections";
 import { requireAdmin } from "@/lib/auth";
 
@@ -106,6 +112,48 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
       { error: `Failed to update recipe: ${message}` },
+      { status: 500 }
+    );
+  }
+}
+
+// Status is deliberately not part of UpdateSchema/PUT: it's curation metadata,
+// not a content edit, and must not flip the `edited` flag.
+const StatusSchema = z.object({
+  status: z.enum(["tried_and_tested", "saved_for_later"]),
+});
+
+export async function PATCH(request: NextRequest, { params }: RouteContext) {
+  const forbidden = await requireAdmin();
+  if (forbidden) return forbidden;
+
+  const { id } = await params;
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const parsed = StatusSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.errors[0]?.message ?? "Invalid request" },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const recipe = await setRecipeStatus(id, parsed.data.status);
+    if (!recipe) {
+      return NextResponse.json({ error: "Recipe not found" }, { status: 404 });
+    }
+    return NextResponse.json({ recipe });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return NextResponse.json(
+      { error: `Failed to update recipe status: ${message}` },
       { status: 500 }
     );
   }

@@ -11,7 +11,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { Recipe } from "@/types";
+import type { Recipe, RecipeStatus } from "@/types";
 import { addToMealPlan } from "@/lib/storage/localStorage";
 import { rescaleIngredientLine } from "@/lib/units/rescale";
 import { groupBySection, normalizeInstructions } from "@/lib/recipe/sections";
@@ -27,6 +27,11 @@ export default function RecipeView({ recipe, onCustomize }: Props) {
   const router = useRouter();
   const [added, setAdded] = useState(false);
   const [viewServings, setViewServings] = useState(recipe.base_servings);
+  const [status, setStatus] = useState<RecipeStatus>(
+    recipe.status ?? "saved_for_later"
+  );
+  const [statusSaving, setStatusSaving] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const instructions = normalizeInstructions(recipe.instructions);
   const ingredientGroups = groupBySection(recipe.ingredients, (i) => i.section);
   const instructionGroups = groupBySection(instructions, (s) => s.section);
@@ -41,6 +46,27 @@ export default function RecipeView({ recipe, onCustomize }: Props) {
     router.push("/grocery-list");
   }
 
+  async function handleToggleStatus() {
+    const next: RecipeStatus =
+      status === "saved_for_later" ? "tried_and_tested" : "saved_for_later";
+    setStatusError(null);
+    setStatusSaving(true);
+    try {
+      const res = await fetch(`/api/recipes/${recipe.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: next }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to update status");
+      setStatus((data.recipe as Recipe).status ?? next);
+    } catch {
+      setStatusError("Couldn't update the status — try again.");
+    } finally {
+      setStatusSaving(false);
+    }
+  }
+
   return (
     <main className="max-w-3xl mx-auto px-4 py-8">
       <Link href="/" className="text-sm text-stone-500 hover:text-stone-700">
@@ -50,11 +76,19 @@ export default function RecipeView({ recipe, onCustomize }: Props) {
       <article className="mt-4 bg-white rounded-xl border border-stone-200 shadow-sm p-6">
         <div className="flex items-start justify-between gap-4">
           <h1 className="text-2xl font-semibold text-stone-900">{recipe.title}</h1>
-          {recipe.edited && (
-            <span className="shrink-0 mt-1 text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
-              Customized
-            </span>
-          )}
+          <div className="shrink-0 mt-1 flex gap-1.5">
+            {/* Visible to everyone — public visitors can land here via direct link. */}
+            {status === "saved_for_later" && (
+              <span className="text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-stone-100 text-stone-600 border border-stone-200">
+                Saved for later
+              </span>
+            )}
+            {recipe.edited && (
+              <span className="text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                Customized
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="mt-1 text-sm text-stone-500">
@@ -127,7 +161,21 @@ export default function RecipeView({ recipe, onCustomize }: Props) {
               ✏️ Customize
             </button>
           )}
+          {isAdmin && (
+            <button
+              onClick={handleToggleStatus}
+              disabled={statusSaving}
+              className="px-3 py-1.5 text-sm font-medium rounded-lg border border-stone-300 text-stone-700 hover:bg-stone-50 disabled:opacity-50 transition-colors"
+            >
+              {status === "saved_for_later"
+                ? "✓ Mark as tried & tested"
+                : "Move to saved for later"}
+            </button>
+          )}
         </div>
+        {statusError && (
+          <p className="mt-2 text-xs text-red-500">{statusError}</p>
+        )}
 
         {notes && (
           <section className="mt-6">
