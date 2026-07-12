@@ -18,7 +18,7 @@ export default function SiteHeader({ isAdmin = false }: { isAdmin?: boolean }) {
             <h1 className="text-lg font-semibold text-stone-900 leading-tight group-hover:text-amber-700 transition-colors">
               Sous-Chef
             </h1>
-            <p className="text-xs text-stone-400">Your recipe library</p>
+            <p className="text-xs text-stone-400">Our recipes</p>
           </div>
         </Link>
         <div className="flex items-center gap-2">
