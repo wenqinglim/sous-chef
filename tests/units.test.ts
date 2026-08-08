@@ -183,6 +183,49 @@ describe("parseIngredient — no quantity", () => {
   });
 });
 
+// ─── Regression: quantity not the leading token ────────────────────────────────
+
+describe("parseIngredient — non-leading quantity", () => {
+  test("name, quantity unit", () => {
+    const r = parseIngredient("Soy sauce, 2 tbsp");
+    expect(r.quantity).toBe(2);
+    expect(r.unit).toBe("tbsp");
+    expect(r.name).toBe("soy sauce");
+  });
+
+  test("name - quantity unit", () => {
+    const r = parseIngredient("Fish sauce - 1 tbsp");
+    expect(r.quantity).toBe(1);
+    expect(r.unit).toBe("tbsp");
+    expect(r.name).toBe("fish sauce");
+  });
+
+  test("name, range unit", () => {
+    const r = parseIngredient("Garlic, 3-4 cloves, minced");
+    expect(r.quantity).toBeCloseTo(3.5);
+    expect(r.unit).toBe("cloves");
+    expect(r.name).toBe("garlic");
+  });
+
+  test("earlier single quantity is not shadowed by a later dimension range", () => {
+    // "200 g" is the real quantity; "2-3 cm" is a prep/dimension phrase that
+    // happens to also match the unit-anchored fallback pattern, but starts
+    // later in the string and must not win.
+    const r = parseIngredient("Carrots, 200 g, cut into 2-3 cm chunks");
+    expect(r.quantity).toBe(200);
+    expect(r.unit).toBe("g");
+    expect(r.name).toBe("carrots");
+  });
+
+  test("non-leading bare count (no adjacent unit) stays unresolved", () => {
+    // Documented scope boundary: a fallback match requires a recognized unit
+    // immediately after the number, so a unit-less non-leading count doesn't
+    // resolve — same as today, not a regression.
+    const r = parseIngredient("Chicken thighs, boneless, 2");
+    expect(r.quantity).toBeNull();
+  });
+});
+
 // ─── Regression: ranges with mixed/unicode endpoints ──────────────────────────
 
 describe("parser — range with int+unicode-fraction endpoint", () => {
