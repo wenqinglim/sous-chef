@@ -183,6 +183,39 @@ describe("parseIngredient — no quantity", () => {
   });
 });
 
+// ─── Regression: quantity not the leading token ────────────────────────────────
+
+describe("parseIngredient — non-leading quantity", () => {
+  test("name, quantity unit", () => {
+    const r = parseIngredient("Soy sauce, 2 tbsp");
+    expect(r.quantity).toBe(2);
+    expect(r.unit).toBe("tbsp");
+    expect(r.name).toBe("soy sauce");
+  });
+
+  test("name - quantity unit", () => {
+    const r = parseIngredient("Fish sauce - 1 tbsp");
+    expect(r.quantity).toBe(1);
+    expect(r.unit).toBe("tbsp");
+    expect(r.name).toBe("fish sauce");
+  });
+
+  test("name, range unit", () => {
+    const r = parseIngredient("Garlic, 3-4 cloves, minced");
+    expect(r.quantity).toBeCloseTo(3.5);
+    expect(r.unit).toBe("cloves");
+    expect(r.name).toBe("garlic");
+  });
+
+  test("non-leading bare count (no adjacent unit) stays unresolved", () => {
+    // Documented scope boundary: a fallback match requires a recognized unit
+    // immediately after the number, so a unit-less non-leading count doesn't
+    // resolve — same as today, not a regression.
+    const r = parseIngredient("Chicken thighs, boneless, 2");
+    expect(r.quantity).toBeNull();
+  });
+});
+
 // ─── Regression: ranges with mixed/unicode endpoints ──────────────────────────
 
 describe("parser — range with int+unicode-fraction endpoint", () => {

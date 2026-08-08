@@ -13,126 +13,14 @@
  */
 
 import type { ParsedQuantity } from "@/types";
-import {
-  UNICODE_FRACTIONS,
-  UF,
-  extractLeadingNumeric,
-} from "./numeric-extract";
+import { UNICODE_FRACTIONS, UF, findQuantityToken } from "./numeric-extract";
+import { UNIT_TOKENS, UNIT_RE_SOURCE } from "./unit-vocab";
 
-// ─── Known unit tokens (ordered: multi-word first, longest first) ─────────────
-
-export const UNIT_TOKENS = [
-  // multi-word — must precede single-word to avoid partial matches
-  "fl. oz.",
-  "fl. oz",
-  "fl oz",
-  "fluid ounces",
-  "fluid ounce",
-  "fluid oz",
-  // long single-word
-  "tablespoons",
-  "tablespoon",
-  "teaspoons",
-  "teaspoon",
-  "milliliters",
-  "millilitres",
-  "milliliter",
-  "millilitre",
-  "kilograms",
-  "kilogram",
-  "milligrams",
-  "milligram",
-  "gallons",
-  "gallon",
-  "quarts",
-  "quart",
-  "pints",
-  "pint",
-  "ounces",
-  "ounce",
-  "pounds",
-  "pound",
-  "liters",
-  "litres",
-  "liter",
-  "litre",
-  "grams",
-  "gram",
-  "bunches",
-  "bunch",
-  "stalks",
-  "stalk",
-  "sprigs",
-  "sprig",
-  "slices",
-  "slice",
-  "pieces",
-  "piece",
-  "cloves",
-  "clove",
-  "sticks",
-  "stick",
-  "sheets",
-  "sheet",
-  "heads",
-  "head",
-  "fillets",
-  "fillet",
-  "leaves",
-  "leaf",
-  "stems",
-  "stem",
-  "inches",
-  "inch",
-  "knobs",
-  "knob",
-  "dozens",
-  "dozen",
-  "cans",
-  "can",
-  "tins",
-  "tin",
-  "bottles",
-  "bottle",
-  "packages",
-  "package",
-  "packets",
-  "packet",
-  "bags",
-  "bag",
-  "blocks",
-  "block",
-  "whole",
-  "each",
-  "cups",
-  "cup",
-  "tbsp.",
-  "tbsp",
-  "tbs.",
-  "tbs",
-  "tsp.",
-  "tsp",
-  "oz.",
-  "oz",
-  "lbs",
-  "lb.",
-  "lb",
-  "kg",
-  "mg",
-  "ml",
-  "cm",
-  "g",
-  "l",
-];
-
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-// Build a single alternation regex for units (longest/multi-word first).
-// Exported so other callers (e.g. the Instagram recipe heuristic) match the
-// exact unit vocabulary the parser understands instead of duplicating it.
-export const UNIT_RE_SOURCE = UNIT_TOKENS.map(escapeRegex).join("|");
+// Re-exported for existing external consumers (e.g. the Instagram recipe
+// heuristic, which matches against the same unit vocabulary this parser
+// uses). The vocabulary itself lives in `./unit-vocab` so the lower-level
+// `numeric-extract.ts` can also use it without a circular import.
+export { UNIT_TOKENS, UNIT_RE_SOURCE };
 
 // ─── Number parsing ───────────────────────────────────────────────────────────
 
@@ -188,25 +76,6 @@ export function parseNumber(token: string): number | null {
   return null;
 }
 
-// ─── Leading number extraction ────────────────────────────────────────────────
-
-/**
- * Extract the leading quantity from `s`. Ranges are reduced to their midpoint
- * — this is what the downstream pipeline math expects ("3-4 cloves" → 3.5).
- * Returns null when no recognizable numeric prefix is present.
- *
- * The set of accepted numeric forms (and their precedence) lives in
- * `extractLeadingNumeric` so that the rescaler shares it.
- */
-function extractLeadingNumber(
-  s: string
-): { quantity: number; consumed: number } | null {
-  const ex = extractLeadingNumeric(s);
-  if (!ex) return null;
-  const quantity = ex.hi != null ? (ex.lo + ex.hi) / 2 : ex.lo;
-  return { quantity, consumed: ex.consumed };
-}
-
 // ─── Cleaning patterns ────────────────────────────────────────────────────────
 
 /** Matches (or something), (alternatively ...) etc. */
@@ -257,28 +126,43 @@ export function parseIngredient(rawText: string): ParsedQuantity {
       .trim();
   }
 
-  // 5. Try to extract a leading number
-  const numResult = extractLeadingNumber(text);
+  // 5. Locate the quantity token — usually leading ("2 tbsp flour"), but a
+  // fallback scan also finds it mid-string for name-first lines
+  // ("Soy sauce, 2 tbsp"). See findQuantityToken in numeric-extract.ts.
+  const match = findQuantityToken(text);
   let quantity: number | null = null;
+  let unit: string | null = null;
   let rest = text;
 
-  if (numResult !== null) {
-    quantity = numResult.quantity;
-    rest = text.slice(numResult.consumed).trim();
-  }
+  if (match !== null) {
+    quantity = match.hi != null ? (match.lo + match.hi) / 2 : match.lo;
+    const unitRe = new RegExp(`^(${UNIT_RE_SOURCE})\\b`, "i");
 
-  // 6. Try to match a unit at the start of `rest`
-  let unit: string | null = null;
-  const unitRe = new RegExp(`^(${UNIT_RE_SOURCE})\\b`, "i");
-  const unitMatch = rest.match(unitRe);
-  if (unitMatch) {
-    unit = unitMatch[1].toLowerCase().trim();
-    rest = rest.slice(unitMatch[1].length).trim();
+    if (match.index === 0) {
+      // Leading quantity: consume the number, then look for a unit
+      // immediately after it.
+      rest = text.slice(match.consumed).trim();
+      const unitMatch = rest.match(unitRe);
+      if (unitMatch) {
+        unit = unitMatch[1].toLowerCase().trim();
+        rest = rest.slice(unitMatch[1].length).trim();
+      }
+    } else {
+      // Non-leading match: the fallback scan already anchored on an
+      // adjacent unit (up to `unitEnd`), so splice both the number and the
+      // unit out and treat what's left as the name.
+      const afterNumber = text.slice(match.index + match.consumed, match.unitEnd).trim();
+      const unitMatch = afterNumber.match(unitRe);
+      unit = unitMatch ? unitMatch[1].toLowerCase().trim() : null;
+      rest = (
+        text.slice(0, match.index) + text.slice(match.unitEnd ?? match.index + match.consumed)
+      ).trim();
+    }
     // Normalise "T" (capital tablespoon shorthand)
     if (unit === "t") unit = "tbsp";
   }
 
-  // 7. Clean the ingredient name
+  // 6. Clean the ingredient name
   const name = cleanName(rest);
 
   // "to taste" / "as needed" → quantity is not meaningful

@@ -508,6 +508,25 @@ describe("shrimp — natural count unit", () => {
   });
 });
 
+// ─── Regression: non-leading quantity scales correctly (not defaulted) ────────
+
+describe("normalizeRecipe — quantity not the leading token", () => {
+  test("'Soy sauce, 2 tbsp' scales with servings instead of defaulting to 1", async () => {
+    const recipe: Recipe = {
+      id: "r1", url: "https://example.com", title: "T", base_servings: 2,
+      parsed_at: new Date().toISOString(), cuisine_source: "western",
+      ingredients: [{ recipe_id: "r1", raw_text: "Soy sauce, 2 tbsp", quantity: null, unit: null, name: "", canonical_id: null }],
+      instructions: [],
+    };
+    // Doubling servings (2 → 4) should double the quantity: 2 tbsp × 2 = 4 tbsp ≈ 59.148 ml.
+    const { normalized, unresolvable } = await normalizeRecipe(recipe, 4);
+    expect(unresolvable).toHaveLength(0);
+    const item = normalized.find((n) => n.canonical_id === "soy_sauce_all_purpose")!;
+    expect(item).toBeDefined();
+    expect(item.quantity).toBeCloseTo(59.148, 2);
+  });
+});
+
 // ─── New registry entries resolve without LLM ─────────────────────────────────
 
 describe("new registry entries — duck, bay leaf, thyme", () => {

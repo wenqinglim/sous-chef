@@ -1,9 +1,11 @@
 /**
  * Rescale a raw ingredient line by a scalar.
  *
- * Multiplies the leading numeric token in `rawText` by `scaleFactor` and
- * substitutes it back, preserving the unit, ingredient name, and any
- * prep/parenthetical text that follows.
+ * Multiplies the line's quantity token by `scaleFactor` and substitutes it
+ * back, preserving the unit, ingredient name, and any prep/parenthetical
+ * text around it. The quantity is usually leading ("2 tbsp soy sauce"), but
+ * name-first lines ("Soy sauce, 2 tbsp") are found too — see
+ * `findQuantityToken` in `numeric-extract.ts`.
  *
  * Accepts every numeric form `extractLeadingNumeric` recognizes (integer,
  * decimal, plain/mixed fractions, unicode fractions, integer + unicode
@@ -29,7 +31,7 @@
  * …), or as a trimmed decimal otherwise.
  */
 
-import { extractLeadingNumeric } from "./numeric-extract";
+import { extractLeadingNumeric, findQuantityToken } from "./numeric-extract";
 
 const FRACTION_GLYPHS: Array<[number, string]> = [
   [1 / 8, "⅛"],
@@ -119,17 +121,18 @@ export function rescaleIngredientLine(rawText: string, scaleFactor: number): str
     return rawText;
   }
 
-  const extracted = extractLeadingNumeric(rawText);
+  const extracted = findQuantityToken(rawText);
   if (!extracted) return rawText;
 
-  const tail = rawText.slice(extracted.consumed);
+  const prefix = rawText.slice(0, extracted.index);
+  const tail = rawText.slice(extracted.index + extracted.consumed);
   const scaledTail = scaleParentheticalEquivalent(tail, scaleFactor);
 
   if (extracted.hi != null) {
     const lo = formatScaledQty(extracted.lo * scaleFactor);
     const hi = formatScaledQty(extracted.hi * scaleFactor);
-    return `${lo}-${hi}${scaledTail}`;
+    return `${prefix}${lo}-${hi}${scaledTail}`;
   }
   const v = formatScaledQty(extracted.lo * scaleFactor);
-  return `${v}${scaledTail}`;
+  return `${prefix}${v}${scaledTail}`;
 }

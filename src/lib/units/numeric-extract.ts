@@ -12,6 +12,8 @@
  * should pick it up automatically.
  */
 
+import { UNIT_RE_SOURCE } from "./unit-vocab";
+
 export const UNICODE_FRACTIONS: Record<string, number> = {
   "½": 0.5,
   "¼": 0.25,
@@ -115,5 +117,74 @@ export function extractLeadingNumeric(s: string): ExtractedNumeric | null {
     const v = parseNumberToken(sm[1]);
     if (v != null) return { lo: v, hi: null, consumed: sm[0].length };
   }
+  return null;
+}
+
+// ─── Non-leading fallback: quantity found elsewhere in the line ───────────────
+
+// A separator that plausibly precedes a quantity in a name-first ingredient
+// line, e.g. "Soy sauce, 2 tbsp" or "Fish sauce - 1 tbsp".
+const FALLBACK_BOUNDARY = `[\\s,:;\\-\\u2013\\u2014(]`;
+
+// The `d` flag (match indices) lets us recover each group's exact offset
+// instead of reconstructing it from substring lengths.
+const FALLBACK_RANGE_RE = new RegExp(
+  `${FALLBACK_BOUNDARY}(${NUM})\\s*(?:-|–|—|to)\\s*(${NUM})\\s*(?:${UNIT_RE_SOURCE})\\b`,
+  "id"
+);
+const FALLBACK_SINGLE_RE = new RegExp(
+  `${FALLBACK_BOUNDARY}(${NUM})\\s*(?:${UNIT_RE_SOURCE})\\b`,
+  "id"
+);
+
+export interface QuantityMatch extends ExtractedNumeric {
+  /** Offset in `s` where the numeric token starts. */
+  index: number;
+  /** Offset in `s` just past the matched unit — set only for a non-leading match. */
+  unitEnd?: number;
+}
+
+/**
+ * Locate the quantity token in `s`, wherever it appears.
+ *
+ * Tries the leading position first (cheap, and covers the vast majority of
+ * ingredient lines, which are quantity-first: "2 tbsp soy sauce"). If
+ * nothing is found there, falls back to scanning for a number immediately
+ * followed by a recognized unit anywhere in the string — e.g.
+ * "Soy sauce, 2 tbsp" — so name-first lines still resolve.
+ *
+ * A unit is required for the fallback match (unlike the leading case, which
+ * accepts a bare number too, e.g. "2 eggs") because a bare number with no
+ * adjacent unit and no fixed position is too ambiguous to attribute reliably
+ * — see the "Limitations" note in rescale.ts for the same tradeoff.
+ *
+ * Returns null when no quantity can be found at all (e.g. "salt to taste").
+ */
+export function findQuantityToken(s: string): QuantityMatch | null {
+  const leading = extractLeadingNumeric(s);
+  if (leading) return { ...leading, index: 0 };
+
+  type IndexedMatch = RegExpMatchArray & { indices: Array<[number, number]> };
+
+  const rm = s.match(FALLBACK_RANGE_RE) as IndexedMatch | null;
+  if (rm) {
+    const lo = parseNumberToken(rm[1]);
+    const hi = parseNumberToken(rm[2]);
+    if (lo != null && hi != null) {
+      const [loStart] = rm.indices[1];
+      const [, hiEnd] = rm.indices[2];
+      return { lo, hi, index: loStart, consumed: hiEnd - loStart, unitEnd: rm.indices[0][1] };
+    }
+  }
+
+  const sm = s.match(FALLBACK_SINGLE_RE) as IndexedMatch | null;
+  if (sm) {
+    const v = parseNumberToken(sm[1]);
+    if (v != null) {
+      const [start, end] = sm.indices[1];
+      return { lo: v, hi: null, index: start, consumed: end - start, unitEnd: sm.indices[0][1] };
+    }
+  }
+
   return null;
 }

@@ -130,6 +130,35 @@ describe("rescaleIngredientLine — leading quantity rewritten", () => {
   });
 });
 
+describe("rescaleIngredientLine — non-leading quantity", () => {
+  test("name, quantity unit — scales in place", () => {
+    expect(rescaleIngredientLine("Soy sauce, 2 tbsp", 2)).toBe(
+      "Soy sauce, 4 tbsp"
+    );
+  });
+
+  test("name - quantity unit — scales in place", () => {
+    expect(rescaleIngredientLine("Fish sauce - 1 tbsp", 3)).toBe(
+      "Fish sauce - 3 tbsp"
+    );
+  });
+
+  test("name, range unit — scales both endpoints in place", () => {
+    expect(rescaleIngredientLine("Garlic, 3-4 cloves, minced", 2)).toBe(
+      "Garlic, 6-8 cloves, minced"
+    );
+  });
+
+  test("no unit adjacent to a non-leading number → unchanged", () => {
+    // Same documented scope boundary as parseIngredient: a bare, unit-less
+    // count that isn't leading can't be reliably attributed, so it's left
+    // alone rather than risking a wrong scale.
+    expect(rescaleIngredientLine("Chicken thighs, boneless", 2)).toBe(
+      "Chicken thighs, boneless"
+    );
+  });
+});
+
 describe("rescaleIngredientLine — parenthetical unit equivalent", () => {
   test("scales metric equivalent in parens alongside the leading qty", () => {
     expect(rescaleIngredientLine("1 cup (240 ml) milk", 2)).toBe(
