@@ -149,6 +149,14 @@ describe("rescaleIngredientLine — non-leading quantity", () => {
     );
   });
 
+  test("earlier single quantity is not shadowed by a later dimension range", () => {
+    // "200 g" must scale; "2-3 cm" is a later prep/dimension phrase and must
+    // be left alone even though it also matches the unit-anchored pattern.
+    expect(
+      rescaleIngredientLine("Carrots, 200 g, cut into 2-3 cm chunks", 2)
+    ).toBe("Carrots, 400 g, cut into 2-3 cm chunks");
+  });
+
   test("no unit adjacent to a non-leading number → unchanged", () => {
     // Same documented scope boundary as parseIngredient: a bare, unit-less
     // count that isn't leading can't be reliably attributed, so it's left

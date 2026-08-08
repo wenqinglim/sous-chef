@@ -207,6 +207,16 @@ describe("parseIngredient — non-leading quantity", () => {
     expect(r.name).toBe("garlic");
   });
 
+  test("earlier single quantity is not shadowed by a later dimension range", () => {
+    // "200 g" is the real quantity; "2-3 cm" is a prep/dimension phrase that
+    // happens to also match the unit-anchored fallback pattern, but starts
+    // later in the string and must not win.
+    const r = parseIngredient("Carrots, 200 g, cut into 2-3 cm chunks");
+    expect(r.quantity).toBe(200);
+    expect(r.unit).toBe("g");
+    expect(r.name).toBe("carrots");
+  });
+
   test("non-leading bare count (no adjacent unit) stays unresolved", () => {
     // Documented scope boundary: a fallback match requires a recognized unit
     // immediately after the number, so a unit-less non-leading count doesn't

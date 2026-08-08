@@ -167,24 +167,36 @@ export function findQuantityToken(s: string): QuantityMatch | null {
   type IndexedMatch = RegExpMatchArray & { indices: Array<[number, number]> };
 
   const rm = s.match(FALLBACK_RANGE_RE) as IndexedMatch | null;
+  let rangeMatch: QuantityMatch | null = null;
   if (rm) {
     const lo = parseNumberToken(rm[1]);
     const hi = parseNumberToken(rm[2]);
     if (lo != null && hi != null) {
       const [loStart] = rm.indices[1];
       const [, hiEnd] = rm.indices[2];
-      return { lo, hi, index: loStart, consumed: hiEnd - loStart, unitEnd: rm.indices[0][1] };
+      rangeMatch = { lo, hi, index: loStart, consumed: hiEnd - loStart, unitEnd: rm.indices[0][1] };
     }
   }
 
   const sm = s.match(FALLBACK_SINGLE_RE) as IndexedMatch | null;
+  let singleMatch: QuantityMatch | null = null;
   if (sm) {
     const v = parseNumberToken(sm[1]);
     if (v != null) {
       const [start, end] = sm.indices[1];
-      return { lo: v, hi: null, index: start, consumed: end - start, unitEnd: sm.indices[0][1] };
+      singleMatch = { lo: v, hi: null, index: start, consumed: end - start, unitEnd: sm.indices[0][1] };
     }
   }
 
-  return null;
+  // The two regexes scan the whole string independently (unlike the
+  // start-anchored leading case), so whichever matches earlier is the real
+  // quantity — a later range in a prep/dimension phrase ("cut into 2-3 cm
+  // chunks") must not shadow an earlier single quantity ("200 g"). Only
+  // prefer range over single when they start at the same offset, mirroring
+  // the tie-break `extractLeadingNumeric` already applies for the anchored
+  // case.
+  if (rangeMatch && singleMatch) {
+    return singleMatch.index < rangeMatch.index ? singleMatch : rangeMatch;
+  }
+  return rangeMatch ?? singleMatch;
 }
