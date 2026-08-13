@@ -1,7 +1,7 @@
 /**
  * GET    /api/recipes/[id]   → { recipe: Recipe } | 404
  * PUT    /api/recipes/[id]   → { recipe: Recipe } | 404  (persists user edits)
- * PATCH  /api/recipes/[id]   → { recipe: Recipe } | 404  (sets curation status)
+ * PATCH  /api/recipes/[id]   → { recipe: Recipe } | 404  (sets curation status/tags)
  * DELETE /api/recipes/[id]   → { ok: true }       | 404
  */
 
@@ -11,6 +11,7 @@ import {
   deleteRecipe,
   getRecipe,
   setRecipeStatus,
+  setRecipeTags,
   updateRecipe,
 } from "@/lib/db/recipes";
 import { normalizeInstructions } from "@/lib/recipe/sections";
@@ -117,11 +118,17 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
   }
 }
 
-// Status is deliberately not part of UpdateSchema/PUT: it's curation metadata,
-// not a content edit, and must not flip the `edited` flag.
-const StatusSchema = z.object({
-  status: z.enum(["tried_and_tested", "saved_for_later"]),
-});
+// Status and tags are deliberately not part of UpdateSchema/PUT: they're
+// curation metadata, not a content edit, and must not flip the `edited` flag.
+const MetadataSchema = z
+  .object({
+    status: z.enum(["tried_and_tested", "saved_for_later"]),
+    tags: z.array(z.string()).max(20),
+  })
+  .partial()
+  .refine((data) => data.status !== undefined || data.tags !== undefined, {
+    message: "No status or tags provided",
+  });
 
 export async function PATCH(request: NextRequest, { params }: RouteContext) {
   const forbidden = await requireAdmin();
@@ -136,7 +143,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const parsed = StatusSchema.safeParse(body);
+  const parsed = MetadataSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.errors[0]?.message ?? "Invalid request" },
@@ -145,15 +152,24 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
   }
 
   try {
-    const recipe = await setRecipeStatus(id, parsed.data.status);
-    if (!recipe) {
-      return NextResponse.json({ error: "Recipe not found" }, { status: 404 });
+    let recipe = null;
+    if (parsed.data.status !== undefined) {
+      recipe = await setRecipeStatus(id, parsed.data.status);
+      if (!recipe) {
+        return NextResponse.json({ error: "Recipe not found" }, { status: 404 });
+      }
+    }
+    if (parsed.data.tags !== undefined) {
+      recipe = await setRecipeTags(id, parsed.data.tags);
+      if (!recipe) {
+        return NextResponse.json({ error: "Recipe not found" }, { status: 404 });
+      }
     }
     return NextResponse.json({ recipe });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
-      { error: `Failed to update recipe status: ${message}` },
+      { error: `Failed to update recipe: ${message}` },
       { status: 500 }
     );
   }

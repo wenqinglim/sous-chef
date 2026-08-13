@@ -28,7 +28,8 @@ paths:
 | `tests/rescale.test.ts` | Ingredient quantity rescaling by servings. |
 | `tests/pipeline.test.ts` | Aggregate + purchase planning + full `derive()`; purchase-unit + slice→weight + metric-output regressions. |
 | `tests/safe-fetch.test.ts` | SSRF protections. |
-| `tests/recipes-repo.test.ts` | Recipe repository mappers + mocked-Prisma flows (upsert id retention, URL dedupe, summaries, `updateRecipe` edits, edited-recipe re-extract guard, status filtering in `listRecipes`, `setRecipeStatus` never flips `edited`, upsert never writes status). |
+| `tests/recipes-repo.test.ts` | Recipe repository mappers + mocked-Prisma flows (upsert id retention, URL dedupe, summaries, `updateRecipe` edits, edited-recipe re-extract guard, status filtering in `listRecipes`, `setRecipeStatus`/`setRecipeTags` never flip `edited`, upsert never writes status or tags). |
+| `tests/recipe-filter.test.ts` | `filterSummaries()` (`src/lib/recipe-filter.ts`) — title search, single/multiple tag OR-match, empty selection = no filtering. |
 
 ## Manual verification checklist (before releasing a UI change)
 
@@ -36,6 +37,7 @@ paths:
 1. **Detail view**: open a saved recipe → title, ingredients, numbered steps render; "View original recipe ↗" opens `recipe.url` in new tab.
 1a. **Customize**: "✏️ Customize" → edit an ingredient, add/remove a step, add a note → Save → reload: edits persist, "Customized" badge shows. Re-importing same URL no longer overwrites.
 1b. **Status**: as admin, import a new recipe → "Saved for later" badge on its card; card badge (or detail-page button) toggles it to tried & tested; in an incognito window only tried & tested recipes appear on `/` and in the grocery picker, but a direct link to a saved-for-later recipe still renders (with badge). Toggling status must NOT add the "Customized" badge.
+1c. **Tags**: as admin, open a recipe → add 2–3 tags via the chip editor → reload: tags persist, do NOT add the "Customized" badge. On `/`, the tag appears as a chip on the card and in the tag filter bar; clicking it narrows the grid to matching recipes; the search box filters by title. In an incognito window, tags render read-only (no editor) on the detail page.
 2. **Single recipe (grocery)**: "Add to grocery list" → on `/grocery-list`, set 4 servings → ingredients render in review step.
 3. **Scaling**: change servings to 6 → quantities reflect `target_servings`, not `base_servings`.
 4. **Multi-recipe**: add a Woks of Life recipe alongside RecipeTin Eats → shared ingredients (garlic) aggregate into one line.

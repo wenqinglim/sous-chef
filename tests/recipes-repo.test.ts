@@ -28,6 +28,7 @@ import {
   normalizeUrl,
   rowToRecipe,
   setRecipeStatus,
+  setRecipeTags,
   updateRecipe,
   upsertRecipeByUrl,
   withRecipeId,
@@ -86,6 +87,7 @@ function makeRow(overrides: Record<string, unknown> = {}) {
     notes: null,
     edited: false,
     status: "tried_and_tested",
+    tags: [],
     parsedAt: new Date("2026-06-10T00:00:00.000Z"),
     userId: null,
     createdAt: new Date("2026-06-10T01:00:00.000Z"),
@@ -125,7 +127,22 @@ describe("rowToRecipe", () => {
       notes: null,
       edited: false,
       status: "tried_and_tested",
+      tags: [],
     });
+  });
+
+  test("maps tags through when present", () => {
+    const recipe = rowToRecipe(
+      makeRow({ tags: ["curry", "weeknight"] }) as never
+    );
+    expect(recipe.tags).toEqual(["curry", "weeknight"]);
+  });
+
+  test("tolerates non-array tags (pre-feature rows) → []", () => {
+    expect(rowToRecipe(makeRow({ tags: undefined }) as never).tags).toEqual(
+      []
+    );
+    expect(rowToRecipe(makeRow({ tags: null }) as never).tags).toEqual([]);
   });
 
   test("missing or garbage status falls back to 'saved_for_later'", () => {
@@ -291,7 +308,7 @@ describe("upsertRecipeByUrl", () => {
     });
   });
 
-  test("never writes status — re-extract keeps it, create takes the DB default", async () => {
+  test("never writes status or tags — re-extract keeps them, create takes the DB default", async () => {
     mockRecipe.findUnique.mockResolvedValue(makeRow({ id: "old-id" }));
     mockRecipe.upsert.mockImplementation(
       ({ update }: { update: Record<string, unknown> }) =>
@@ -303,6 +320,8 @@ describe("upsertRecipeByUrl", () => {
     const call = mockRecipe.upsert.mock.calls[0][0];
     expect(call.update).not.toHaveProperty("status");
     expect(call.create).not.toHaveProperty("status");
+    expect(call.update).not.toHaveProperty("tags");
+    expect(call.create).not.toHaveProperty("tags");
   });
 });
 
@@ -431,9 +450,16 @@ describe("listRecipes", () => {
         edited: false,
         has_notes: false,
         status: "tried_and_tested",
+        tags: [],
         created_at: "2026-06-10T01:00:00.000Z",
       },
     ]);
+  });
+
+  test("maps tags into the summary", async () => {
+    mockRecipe.findMany.mockResolvedValue([makeRow({ tags: ["baking"] })]);
+    const [summary] = await listRecipes();
+    expect(summary.tags).toEqual(["baking"]);
   });
 
   test("defaults to tried_and_tested only (fail closed for public callers)", async () => {
@@ -508,6 +534,55 @@ describe("setRecipeStatus", () => {
     await expect(
       setRecipeStatus("row-id", "tried_and_tested")
     ).rejects.toThrow("connection refused");
+  });
+});
+
+describe("setRecipeTags", () => {
+  test("writes exactly { tags } — never flips edited", async () => {
+    mockRecipe.update.mockImplementation(
+      ({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve(makeRow({ tags: data.tags }))
+    );
+
+    const result = await setRecipeTags("row-id", ["curry", "weeknight"]);
+
+    expect(mockRecipe.update).toHaveBeenCalledWith({
+      where: { id: "row-id" },
+      data: { tags: ["curry", "weeknight"] },
+    });
+    expect(result?.tags).toEqual(["curry", "weeknight"]);
+    expect(result?.edited).toBe(false);
+  });
+
+  test("trims whitespace, drops empties, dedupes case-insensitively", async () => {
+    mockRecipe.update.mockImplementation(
+      ({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve(makeRow({ tags: data.tags }))
+    );
+
+    await setRecipeTags("row-id", ["  Curry ", "curry", "", "  ", "Baking"]);
+
+    expect(mockRecipe.update).toHaveBeenCalledWith({
+      where: { id: "row-id" },
+      data: { tags: ["Curry", "Baking"] },
+    });
+  });
+
+  test("returns null when the record does not exist (P2025)", async () => {
+    mockRecipe.update.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Record not found", {
+        code: "P2025",
+        clientVersion: "6.0.0",
+      })
+    );
+    expect(await setRecipeTags("missing", ["curry"])).toBeNull();
+  });
+
+  test("propagates non-P2025 errors", async () => {
+    mockRecipe.update.mockRejectedValue(new Error("connection refused"));
+    await expect(setRecipeTags("row-id", ["curry"])).rejects.toThrow(
+      "connection refused"
+    );
   });
 });
 

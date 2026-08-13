@@ -174,12 +174,24 @@ describe("PUT /api/recipes/[id]", () => {
   });
 });
 
-describe("PATCH /api/recipes/[id] (status)", () => {
+describe("PATCH /api/recipes/[id] (status/tags)", () => {
   test("returns 403 for anonymous callers", async () => {
     mockCookies.mockResolvedValue(anonymousCookies());
     const res = await recipePATCH(
       jsonRequest("http://localhost/api/recipes/xyz", "PATCH", {
         status: "tried_and_tested",
+      }),
+      paramsFor("xyz")
+    );
+    expect(res.status).toBe(403);
+    expect(mockRecipe.update).not.toHaveBeenCalled();
+  });
+
+  test("returns 403 for anonymous callers with a tags-only body", async () => {
+    mockCookies.mockResolvedValue(anonymousCookies());
+    const res = await recipePATCH(
+      jsonRequest("http://localhost/api/recipes/xyz", "PATCH", {
+        tags: ["curry"],
       }),
       paramsFor("xyz")
     );
@@ -210,6 +222,46 @@ describe("PATCH /api/recipes/[id] (status)", () => {
     const res = await recipePATCH(
       jsonRequest("http://localhost/api/recipes/xyz", "PATCH", {
         status: "delicious",
+      }),
+      paramsFor("xyz")
+    );
+    expect(res.status).toBe(400);
+    expect(mockRecipe.update).not.toHaveBeenCalled();
+  });
+
+  test("admin can set tags only; the write never touches `edited`", async () => {
+    mockCookies.mockResolvedValue(adminCookies());
+    mockRecipe.update.mockResolvedValue(makeRow({ tags: ["curry"] }));
+    const res = await recipePATCH(
+      jsonRequest("http://localhost/api/recipes/xyz", "PATCH", {
+        tags: ["curry"],
+      }),
+      paramsFor("xyz")
+    );
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.recipe.tags).toEqual(["curry"]);
+    expect(mockRecipe.update).toHaveBeenCalledWith({
+      where: { id: "xyz" },
+      data: { tags: ["curry"] },
+    });
+  });
+
+  test("rejects an empty body with 400 (neither status nor tags)", async () => {
+    mockCookies.mockResolvedValue(adminCookies());
+    const res = await recipePATCH(
+      jsonRequest("http://localhost/api/recipes/xyz", "PATCH", {}),
+      paramsFor("xyz")
+    );
+    expect(res.status).toBe(400);
+    expect(mockRecipe.update).not.toHaveBeenCalled();
+  });
+
+  test("rejects a tags array longer than 20 with 400", async () => {
+    mockCookies.mockResolvedValue(adminCookies());
+    const res = await recipePATCH(
+      jsonRequest("http://localhost/api/recipes/xyz", "PATCH", {
+        tags: Array.from({ length: 21 }, (_, i) => `tag${i}`),
       }),
       paramsFor("xyz")
     );
