@@ -231,31 +231,6 @@ export async function updateRecipe(
 }
 
 /**
- * Set the tried/saved curation status. Deliberately separate from
- * updateRecipe(): status is metadata, not a content edit, so it must NOT flip
- * `edited` (which would show "Customized" and block re-extract refresh).
- * Returns the updated Recipe, or null if no row matches `id`.
- */
-export async function setRecipeStatus(
-  id: string,
-  status: RecipeStatus
-): Promise<Recipe | null> {
-  try {
-    const row = await prisma.recipe.update({ where: { id }, data: { status } });
-    return rowToRecipe(row);
-  } catch (err) {
-    // P2025 = record not found → null; other errors propagate (→ 500)
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2025"
-    ) {
-      return null;
-    }
-    throw err;
-  }
-}
-
-/**
  * Normalize a raw tag list: trim whitespace, drop empties, dedupe
  * case-insensitively (first-seen casing wins). The single place tag hygiene
  * is enforced, regardless of caller.
@@ -274,21 +249,30 @@ function normalizeTags(tags: string[]): string[] {
   return result;
 }
 
+/** Fields settable via setRecipeMetadata. At least one should be present. */
+export interface RecipeMetadataPatch {
+  status?: RecipeStatus;
+  tags?: string[];
+}
+
 /**
- * Set a recipe's curation tags. Deliberately separate from updateRecipe():
- * tags are metadata, not a content edit, so this must NOT flip `edited`
- * (which would show "Customized" and block re-extract refresh).
+ * Set curation status and/or tags. Deliberately separate from updateRecipe():
+ * this is metadata, not a content edit, so it must NOT flip `edited` (which
+ * would show "Customized" and block re-extract refresh). Both fields are
+ * written in a single `prisma.recipe.update()` call so a caller setting both
+ * at once gets an atomic write rather than two independent round trips.
  * Returns the updated Recipe, or null if no row matches `id`.
  */
-export async function setRecipeTags(
+export async function setRecipeMetadata(
   id: string,
-  tags: string[]
+  patch: RecipeMetadataPatch
 ): Promise<Recipe | null> {
+  const data: Prisma.RecipeUpdateInput = {};
+  if (patch.status !== undefined) data.status = patch.status;
+  if (patch.tags !== undefined) data.tags = normalizeTags(patch.tags);
+
   try {
-    const row = await prisma.recipe.update({
-      where: { id },
-      data: { tags: normalizeTags(tags) },
-    });
+    const row = await prisma.recipe.update({ where: { id }, data });
     return rowToRecipe(row);
   } catch (err) {
     // P2025 = record not found → null; other errors propagate (→ 500)

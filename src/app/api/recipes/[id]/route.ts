@@ -10,8 +10,7 @@ import { z } from "zod";
 import {
   deleteRecipe,
   getRecipe,
-  setRecipeStatus,
-  setRecipeTags,
+  setRecipeMetadata,
   updateRecipe,
 } from "@/lib/db/recipes";
 import { normalizeInstructions } from "@/lib/recipe/sections";
@@ -152,18 +151,9 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
   }
 
   try {
-    let recipe = null;
-    if (parsed.data.status !== undefined) {
-      recipe = await setRecipeStatus(id, parsed.data.status);
-      if (!recipe) {
-        return NextResponse.json({ error: "Recipe not found" }, { status: 404 });
-      }
-    }
-    if (parsed.data.tags !== undefined) {
-      recipe = await setRecipeTags(id, parsed.data.tags);
-      if (!recipe) {
-        return NextResponse.json({ error: "Recipe not found" }, { status: 404 });
-      }
+    const recipe = await setRecipeMetadata(id, parsed.data);
+    if (!recipe) {
+      return NextResponse.json({ error: "Recipe not found" }, { status: 404 });
     }
     return NextResponse.json({ recipe });
   } catch (err) {

@@ -23,9 +23,8 @@ paths:
 
 - `status` column: `"tried_and_tested" | "saved_for_later"`, defaults to `saved_for_later` for new imports (the 20260711 migration backfilled pre-existing rows to `tried_and_tested`).
 - `listRecipes()` filters to `tried_and_tested` unless called with `{ includeUntried: true }` (admin-only, decided by the route via `isAdmin()`).
-- Status is set via `setRecipeStatus()` / `PATCH /api/recipes/[id]` — never through `updateRecipe()`, so it does **not** flip `edited`.
-- `tags` column: `text[]`, defaults to `{}` (20260813 migration). Freeform, open-vocabulary — no admin-configured enum.
-- Tags are set via `setRecipeTags()` / `PATCH /api/recipes/[id]` (same "metadata, not content" path as status — does **not** flip `edited`). `setRecipeTags()` trims/dedupes (case-insensitive) before writing.
+- `tags` column: `text[]`, defaults to `{}` (20260813 migration). Freeform, open-vocabulary — no admin-configured enum. Deduped case-insensitively per recipe on write (first-seen casing wins), but two recipes can still store the same tag under different casing — cross-recipe matching (library filter bar) folds case; see `src/lib/recipe-filter.ts`.
+- Both are set via `setRecipeMetadata(id, { status?, tags? })` / `PATCH /api/recipes/[id]` — never through `updateRecipe()`, so it does **not** flip `edited`. Both fields are written in a single `prisma.recipe.update()` call so a request setting both at once is atomic.
 - `upsertRecipeByUrl()` never writes `status` or `tags` (both excluded from `toRowData`), so a re-extract keeps the stored curation metadata.
 
 ## Multi-user migration path (single-user for now)

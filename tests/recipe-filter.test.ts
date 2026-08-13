@@ -1,10 +1,10 @@
 /**
- * filterSummaries() — pure library-search/tag-filter predicate used by
- * RecipeLibraryGrid. Tested directly so the filter logic doesn't need a
- * DOM/RTL setup.
+ * filterSummaries() / uniqueTags() — pure library-search/tag-filter helpers
+ * used by RecipeLibraryGrid. Tested directly so the filter logic doesn't
+ * need a DOM/RTL setup.
  */
 
-import { filterSummaries } from "@/lib/recipe-filter";
+import { filterSummaries, uniqueTags } from "@/lib/recipe-filter";
 
 interface TestSummary {
   id: string;
@@ -74,5 +74,32 @@ describe("filterSummaries", () => {
   test("empty tag selection does not filter by tags", () => {
     const summaries = [makeSummary({ tags: [] }), makeSummary({ id: "2", tags: ["baking"] })];
     expect(filterSummaries(summaries, "", new Set())).toEqual(summaries);
+  });
+
+  test("tag matching is case-insensitive across recipes with differently-cased tags", () => {
+    const summaries = [
+      makeSummary({ id: "1", tags: ["Curry"] }),
+      makeSummary({ id: "2", tags: ["curry"] }),
+      makeSummary({ id: "3", tags: ["baking"] }),
+    ];
+    // Selecting the lowercase chip still matches the recipe stored as "Curry".
+    expect(filterSummaries(summaries, "", new Set(["curry"]))).toEqual([
+      summaries[0],
+      summaries[1],
+    ]);
+  });
+});
+
+describe("uniqueTags", () => {
+  test("dedupes case-insensitively, first-seen casing wins", () => {
+    const summaries = [
+      { title: "a", tags: ["Curry", "weeknight"] },
+      { title: "b", tags: ["curry", "Baking"] },
+    ];
+    expect(uniqueTags(summaries)).toEqual(["Baking", "Curry", "weeknight"]);
+  });
+
+  test("returns an empty list when no recipe has tags", () => {
+    expect(uniqueTags([{ title: "a", tags: [] }])).toEqual([]);
   });
 });

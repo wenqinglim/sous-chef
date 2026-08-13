@@ -12,7 +12,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { RecipeStatus } from "@/types";
 import { useIsAdmin } from "@/components/AdminProvider";
-import { filterSummaries } from "@/lib/recipe-filter";
+import { filterSummaries, uniqueTags } from "@/lib/recipe-filter";
 
 interface RecipeSummary {
   id: string;
@@ -38,11 +38,7 @@ export default function RecipeLibraryGrid() {
   const [query, setQuery] = useState("");
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   // Hooks must run unconditionally (before the loading/empty early returns).
-  const allTags = useMemo(
-    () =>
-      Array.from(new Set((summaries ?? []).flatMap((s) => s.tags))).sort(),
-    [summaries]
-  );
+  const allTags = useMemo(() => uniqueTags(summaries ?? []), [summaries]);
 
   useEffect(() => {
     let cancelled = false;

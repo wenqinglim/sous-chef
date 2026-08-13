@@ -247,6 +247,30 @@ describe("PATCH /api/recipes/[id] (status/tags)", () => {
     });
   });
 
+  test("admin can set status and tags together in one atomic write", async () => {
+    mockCookies.mockResolvedValue(adminCookies());
+    mockRecipe.update.mockResolvedValue(
+      makeRow({ status: "tried_and_tested", tags: ["curry"] })
+    );
+    const res = await recipePATCH(
+      jsonRequest("http://localhost/api/recipes/xyz", "PATCH", {
+        status: "tried_and_tested",
+        tags: ["curry"],
+      }),
+      paramsFor("xyz")
+    );
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.recipe.status).toBe("tried_and_tested");
+    expect(data.recipe.tags).toEqual(["curry"]);
+    // A single prisma call carrying both fields, not two sequential writes.
+    expect(mockRecipe.update).toHaveBeenCalledTimes(1);
+    expect(mockRecipe.update).toHaveBeenCalledWith({
+      where: { id: "xyz" },
+      data: { status: "tried_and_tested", tags: ["curry"] },
+    });
+  });
+
   test("rejects an empty body with 400 (neither status nor tags)", async () => {
     mockCookies.mockResolvedValue(adminCookies());
     const res = await recipePATCH(

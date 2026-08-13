@@ -263,7 +263,6 @@ export default function RecipeView({ recipe, onCustomize }: Props) {
                     handleAddTag();
                   }
                 }}
-                onBlur={handleAddTag}
                 disabled={tagsSaving}
                 placeholder="Add a tag…"
                 className="text-xs border border-stone-300 rounded px-1.5 py-0.5 w-24 focus:outline-none focus:ring-1 focus:ring-amber-500 disabled:opacity-40"

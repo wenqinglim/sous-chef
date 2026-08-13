@@ -27,8 +27,7 @@ import {
   listRecipes,
   normalizeUrl,
   rowToRecipe,
-  setRecipeStatus,
-  setRecipeTags,
+  setRecipeMetadata,
   updateRecipe,
   upsertRecipeByUrl,
   withRecipeId,
@@ -502,14 +501,16 @@ describe("listRecipes", () => {
   });
 });
 
-describe("setRecipeStatus", () => {
-  test("writes exactly { status } — never flips edited", async () => {
+describe("setRecipeMetadata", () => {
+  test("status only — writes exactly { status }, never flips edited", async () => {
     mockRecipe.update.mockImplementation(
       ({ data }: { data: Record<string, unknown> }) =>
         Promise.resolve(makeRow({ status: data.status }))
     );
 
-    const result = await setRecipeStatus("row-id", "saved_for_later");
+    const result = await setRecipeMetadata("row-id", {
+      status: "saved_for_later",
+    });
 
     expect(mockRecipe.update).toHaveBeenCalledWith({
       where: { id: "row-id" },
@@ -519,32 +520,15 @@ describe("setRecipeStatus", () => {
     expect(result?.edited).toBe(false);
   });
 
-  test("returns null when the record does not exist (P2025)", async () => {
-    mockRecipe.update.mockRejectedValue(
-      new Prisma.PrismaClientKnownRequestError("Record not found", {
-        code: "P2025",
-        clientVersion: "6.0.0",
-      })
-    );
-    expect(await setRecipeStatus("missing", "tried_and_tested")).toBeNull();
-  });
-
-  test("propagates non-P2025 errors", async () => {
-    mockRecipe.update.mockRejectedValue(new Error("connection refused"));
-    await expect(
-      setRecipeStatus("row-id", "tried_and_tested")
-    ).rejects.toThrow("connection refused");
-  });
-});
-
-describe("setRecipeTags", () => {
-  test("writes exactly { tags } — never flips edited", async () => {
+  test("tags only — writes exactly { tags }, never flips edited", async () => {
     mockRecipe.update.mockImplementation(
       ({ data }: { data: Record<string, unknown> }) =>
         Promise.resolve(makeRow({ tags: data.tags }))
     );
 
-    const result = await setRecipeTags("row-id", ["curry", "weeknight"]);
+    const result = await setRecipeMetadata("row-id", {
+      tags: ["curry", "weeknight"],
+    });
 
     expect(mockRecipe.update).toHaveBeenCalledWith({
       where: { id: "row-id" },
@@ -554,13 +538,36 @@ describe("setRecipeTags", () => {
     expect(result?.edited).toBe(false);
   });
 
-  test("trims whitespace, drops empties, dedupes case-insensitively", async () => {
+  test("status and tags together — a single atomic update call with both keys", async () => {
+    mockRecipe.update.mockImplementation(
+      ({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve(makeRow({ status: data.status, tags: data.tags }))
+    );
+
+    const result = await setRecipeMetadata("row-id", {
+      status: "tried_and_tested",
+      tags: ["curry"],
+    });
+
+    // Exactly one prisma call, carrying both fields — not two sequential writes.
+    expect(mockRecipe.update).toHaveBeenCalledTimes(1);
+    expect(mockRecipe.update).toHaveBeenCalledWith({
+      where: { id: "row-id" },
+      data: { status: "tried_and_tested", tags: ["curry"] },
+    });
+    expect(result?.status).toBe("tried_and_tested");
+    expect(result?.tags).toEqual(["curry"]);
+  });
+
+  test("trims whitespace, drops empties, dedupes tags case-insensitively", async () => {
     mockRecipe.update.mockImplementation(
       ({ data }: { data: Record<string, unknown> }) =>
         Promise.resolve(makeRow({ tags: data.tags }))
     );
 
-    await setRecipeTags("row-id", ["  Curry ", "curry", "", "  ", "Baking"]);
+    await setRecipeMetadata("row-id", {
+      tags: ["  Curry ", "curry", "", "  ", "Baking"],
+    });
 
     expect(mockRecipe.update).toHaveBeenCalledWith({
       where: { id: "row-id" },
@@ -575,14 +582,16 @@ describe("setRecipeTags", () => {
         clientVersion: "6.0.0",
       })
     );
-    expect(await setRecipeTags("missing", ["curry"])).toBeNull();
+    expect(
+      await setRecipeMetadata("missing", { status: "tried_and_tested" })
+    ).toBeNull();
   });
 
   test("propagates non-P2025 errors", async () => {
     mockRecipe.update.mockRejectedValue(new Error("connection refused"));
-    await expect(setRecipeTags("row-id", ["curry"])).rejects.toThrow(
-      "connection refused"
-    );
+    await expect(
+      setRecipeMetadata("row-id", { status: "tried_and_tested" })
+    ).rejects.toThrow("connection refused");
   });
 });
 
