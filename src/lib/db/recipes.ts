@@ -36,6 +36,8 @@ export interface RecipeSummary {
   has_notes: boolean;
   /** Curation status; non-admin list requests only ever see "tried_and_tested" */
   status: RecipeStatus;
+  /** Freeform curation tags, e.g. "curry", "weeknight" */
+  tags: string[];
   created_at: string;
 }
 
@@ -72,6 +74,7 @@ export function rowToRecipe(row: RecipeRow): Recipe {
     notes: row.notes ?? null,
     edited: row.edited ?? false,
     status: rowStatus(row.status),
+    tags: Array.isArray(row.tags) ? row.tags : [],
   };
 }
 
@@ -87,8 +90,8 @@ export function withRecipeId(recipe: Recipe, id: string): Recipe {
   };
 }
 
-// Deliberately excludes curation metadata (notes, edited, status): a re-extract
-// upsert must never clobber those, and creates take the DB defaults.
+// Deliberately excludes curation metadata (notes, edited, status, tags): a
+// re-extract upsert must never clobber those, and creates take the DB defaults.
 function toRowData(recipe: Recipe, url: string) {
   return {
     url,
@@ -130,6 +133,7 @@ export async function listRecipes(
     edited: row.edited ?? false,
     has_notes: typeof row.notes === "string" && row.notes.trim().length > 0,
     status: rowStatus(row.status),
+    tags: Array.isArray(row.tags) ? row.tags : [],
     created_at: row.createdAt.toISOString(),
   }));
 }
@@ -227,17 +231,48 @@ export async function updateRecipe(
 }
 
 /**
- * Set the tried/saved curation status. Deliberately separate from
- * updateRecipe(): status is metadata, not a content edit, so it must NOT flip
- * `edited` (which would show "Customized" and block re-extract refresh).
+ * Normalize a raw tag list: trim whitespace, drop empties, dedupe
+ * case-insensitively (first-seen casing wins). The single place tag hygiene
+ * is enforced, regardless of caller.
+ */
+function normalizeTags(tags: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const tag of tags) {
+    const trimmed = tag.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(trimmed);
+  }
+  return result;
+}
+
+/** Fields settable via setRecipeMetadata. At least one should be present. */
+export interface RecipeMetadataPatch {
+  status?: RecipeStatus;
+  tags?: string[];
+}
+
+/**
+ * Set curation status and/or tags. Deliberately separate from updateRecipe():
+ * this is metadata, not a content edit, so it must NOT flip `edited` (which
+ * would show "Customized" and block re-extract refresh). Both fields are
+ * written in a single `prisma.recipe.update()` call so a caller setting both
+ * at once gets an atomic write rather than two independent round trips.
  * Returns the updated Recipe, or null if no row matches `id`.
  */
-export async function setRecipeStatus(
+export async function setRecipeMetadata(
   id: string,
-  status: RecipeStatus
+  patch: RecipeMetadataPatch
 ): Promise<Recipe | null> {
+  const data: Prisma.RecipeUpdateInput = {};
+  if (patch.status !== undefined) data.status = patch.status;
+  if (patch.tags !== undefined) data.tags = normalizeTags(patch.tags);
+
   try {
-    const row = await prisma.recipe.update({ where: { id }, data: { status } });
+    const row = await prisma.recipe.update({ where: { id }, data });
     return rowToRecipe(row);
   } catch (err) {
     // P2025 = record not found → null; other errors propagate (→ 500)

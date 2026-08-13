@@ -27,7 +27,7 @@ import {
   listRecipes,
   normalizeUrl,
   rowToRecipe,
-  setRecipeStatus,
+  setRecipeMetadata,
   updateRecipe,
   upsertRecipeByUrl,
   withRecipeId,
@@ -86,6 +86,7 @@ function makeRow(overrides: Record<string, unknown> = {}) {
     notes: null,
     edited: false,
     status: "tried_and_tested",
+    tags: [],
     parsedAt: new Date("2026-06-10T00:00:00.000Z"),
     userId: null,
     createdAt: new Date("2026-06-10T01:00:00.000Z"),
@@ -125,7 +126,22 @@ describe("rowToRecipe", () => {
       notes: null,
       edited: false,
       status: "tried_and_tested",
+      tags: [],
     });
+  });
+
+  test("maps tags through when present", () => {
+    const recipe = rowToRecipe(
+      makeRow({ tags: ["curry", "weeknight"] }) as never
+    );
+    expect(recipe.tags).toEqual(["curry", "weeknight"]);
+  });
+
+  test("tolerates non-array tags (pre-feature rows) → []", () => {
+    expect(rowToRecipe(makeRow({ tags: undefined }) as never).tags).toEqual(
+      []
+    );
+    expect(rowToRecipe(makeRow({ tags: null }) as never).tags).toEqual([]);
   });
 
   test("missing or garbage status falls back to 'saved_for_later'", () => {
@@ -291,7 +307,7 @@ describe("upsertRecipeByUrl", () => {
     });
   });
 
-  test("never writes status — re-extract keeps it, create takes the DB default", async () => {
+  test("never writes status or tags — re-extract keeps them, create takes the DB default", async () => {
     mockRecipe.findUnique.mockResolvedValue(makeRow({ id: "old-id" }));
     mockRecipe.upsert.mockImplementation(
       ({ update }: { update: Record<string, unknown> }) =>
@@ -303,6 +319,8 @@ describe("upsertRecipeByUrl", () => {
     const call = mockRecipe.upsert.mock.calls[0][0];
     expect(call.update).not.toHaveProperty("status");
     expect(call.create).not.toHaveProperty("status");
+    expect(call.update).not.toHaveProperty("tags");
+    expect(call.create).not.toHaveProperty("tags");
   });
 });
 
@@ -431,9 +449,16 @@ describe("listRecipes", () => {
         edited: false,
         has_notes: false,
         status: "tried_and_tested",
+        tags: [],
         created_at: "2026-06-10T01:00:00.000Z",
       },
     ]);
+  });
+
+  test("maps tags into the summary", async () => {
+    mockRecipe.findMany.mockResolvedValue([makeRow({ tags: ["baking"] })]);
+    const [summary] = await listRecipes();
+    expect(summary.tags).toEqual(["baking"]);
   });
 
   test("defaults to tried_and_tested only (fail closed for public callers)", async () => {
@@ -476,14 +501,16 @@ describe("listRecipes", () => {
   });
 });
 
-describe("setRecipeStatus", () => {
-  test("writes exactly { status } — never flips edited", async () => {
+describe("setRecipeMetadata", () => {
+  test("status only — writes exactly { status }, never flips edited", async () => {
     mockRecipe.update.mockImplementation(
       ({ data }: { data: Record<string, unknown> }) =>
         Promise.resolve(makeRow({ status: data.status }))
     );
 
-    const result = await setRecipeStatus("row-id", "saved_for_later");
+    const result = await setRecipeMetadata("row-id", {
+      status: "saved_for_later",
+    });
 
     expect(mockRecipe.update).toHaveBeenCalledWith({
       where: { id: "row-id" },
@@ -493,6 +520,61 @@ describe("setRecipeStatus", () => {
     expect(result?.edited).toBe(false);
   });
 
+  test("tags only — writes exactly { tags }, never flips edited", async () => {
+    mockRecipe.update.mockImplementation(
+      ({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve(makeRow({ tags: data.tags }))
+    );
+
+    const result = await setRecipeMetadata("row-id", {
+      tags: ["curry", "weeknight"],
+    });
+
+    expect(mockRecipe.update).toHaveBeenCalledWith({
+      where: { id: "row-id" },
+      data: { tags: ["curry", "weeknight"] },
+    });
+    expect(result?.tags).toEqual(["curry", "weeknight"]);
+    expect(result?.edited).toBe(false);
+  });
+
+  test("status and tags together — a single atomic update call with both keys", async () => {
+    mockRecipe.update.mockImplementation(
+      ({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve(makeRow({ status: data.status, tags: data.tags }))
+    );
+
+    const result = await setRecipeMetadata("row-id", {
+      status: "tried_and_tested",
+      tags: ["curry"],
+    });
+
+    // Exactly one prisma call, carrying both fields — not two sequential writes.
+    expect(mockRecipe.update).toHaveBeenCalledTimes(1);
+    expect(mockRecipe.update).toHaveBeenCalledWith({
+      where: { id: "row-id" },
+      data: { status: "tried_and_tested", tags: ["curry"] },
+    });
+    expect(result?.status).toBe("tried_and_tested");
+    expect(result?.tags).toEqual(["curry"]);
+  });
+
+  test("trims whitespace, drops empties, dedupes tags case-insensitively", async () => {
+    mockRecipe.update.mockImplementation(
+      ({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve(makeRow({ tags: data.tags }))
+    );
+
+    await setRecipeMetadata("row-id", {
+      tags: ["  Curry ", "curry", "", "  ", "Baking"],
+    });
+
+    expect(mockRecipe.update).toHaveBeenCalledWith({
+      where: { id: "row-id" },
+      data: { tags: ["Curry", "Baking"] },
+    });
+  });
+
   test("returns null when the record does not exist (P2025)", async () => {
     mockRecipe.update.mockRejectedValue(
       new Prisma.PrismaClientKnownRequestError("Record not found", {
@@ -500,13 +582,15 @@ describe("setRecipeStatus", () => {
         clientVersion: "6.0.0",
       })
     );
-    expect(await setRecipeStatus("missing", "tried_and_tested")).toBeNull();
+    expect(
+      await setRecipeMetadata("missing", { status: "tried_and_tested" })
+    ).toBeNull();
   });
 
   test("propagates non-P2025 errors", async () => {
     mockRecipe.update.mockRejectedValue(new Error("connection refused"));
     await expect(
-      setRecipeStatus("row-id", "tried_and_tested")
+      setRecipeMetadata("row-id", { status: "tried_and_tested" })
     ).rejects.toThrow("connection refused");
   });
 });

@@ -5,8 +5,8 @@ import { isAdmin } from "@/lib/auth";
 export default async function HomePage() {
   const admin = await isAdmin();
   return (
-    <main className="max-w-3xl mx-auto px-4 py-8">
-      <div className="mb-6">
+    <main className="max-w-5xl mx-auto px-4 py-8">
+      <div className="max-w-2xl mb-6">
         <h2 className="text-xl font-semibold text-stone-900">Our recipes</h2>
         <p className="text-sm text-stone-500 mt-1">
           {admin ? (
@@ -24,7 +24,11 @@ export default async function HomePage() {
         </p>
       </div>
 
-      {admin && <AddRecipeForm />}
+      {admin && (
+        <div className="max-w-2xl">
+          <AddRecipeForm />
+        </div>
+      )}
       <RecipeLibraryGrid />
     </main>
   );

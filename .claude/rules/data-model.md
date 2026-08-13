@@ -37,6 +37,7 @@ Recipe {
   notes?: string | null   // freeform user notes (customization); absent on fresh extracts
   edited?: boolean         // true once a user saved an edit; guards against re-extract clobber
   status?: "tried_and_tested" | "saved_for_later"  // curation status; non-admins only see tried_and_tested in lists
+  tags?: string[]         // freeform curation tags, e.g. "curry", "weeknight"; open vocabulary
 }
 
 RecipeIngredient {

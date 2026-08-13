@@ -83,6 +83,8 @@ export interface Recipe {
   edited?: boolean;
   /** Curation status; drives public list filtering. Absent on freshly extracted (unsaved) recipes. */
   status?: RecipeStatus;
+  /** Freeform curation tags, e.g. "curry", "weeknight"; open vocabulary, admin-editable. */
+  tags?: string[];
 }
 
 // ─── Meal Plan ────────────────────────────────────────────────────────────────

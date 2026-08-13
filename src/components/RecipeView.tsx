@@ -32,12 +32,17 @@ export default function RecipeView({ recipe, onCustomize }: Props) {
   );
   const [statusSaving, setStatusSaving] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [tags, setTags] = useState<string[]>(recipe.tags ?? []);
+  const [tagInput, setTagInput] = useState("");
+  const [tagsSaving, setTagsSaving] = useState(false);
+  const [tagsError, setTagsError] = useState<string | null>(null);
 
   // Local state exists only for the optimistic toggle; resync it whenever the
   // prop changes (recipe swap or parent refetch) so it can't go stale.
   useEffect(() => {
     setStatus(recipe.status ?? "saved_for_later");
-  }, [recipe.id, recipe.status]);
+    setTags(recipe.tags ?? []);
+  }, [recipe.id, recipe.status, recipe.tags]);
   const instructions = normalizeInstructions(recipe.instructions);
   const ingredientGroups = groupBySection(recipe.ingredients, (i) => i.section);
   const instructionGroups = groupBySection(instructions, (s) => s.section);
@@ -71,6 +76,50 @@ export default function RecipeView({ recipe, onCustomize }: Props) {
     } finally {
       setStatusSaving(false);
     }
+  }
+
+  async function saveTags(nextTags: string[]) {
+    const prevTags = tags;
+    setTagsError(null);
+    setTagsSaving(true);
+    setTags(nextTags);
+    try {
+      const res = await fetch(`/api/recipes/${recipe.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags: nextTags }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to update tags");
+      setTags((data.recipe as Recipe).tags ?? []);
+    } catch {
+      setTags(prevTags);
+      setTagsError("Couldn't update tags — try again.");
+    } finally {
+      setTagsSaving(false);
+    }
+  }
+
+  function handleAddTag() {
+    const raw = tagInput.trim();
+    if (!raw) return;
+    const additions = raw
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    setTagInput("");
+    if (additions.length === 0) return;
+    const merged = [...tags];
+    for (const tag of additions) {
+      if (!merged.some((t) => t.toLowerCase() === tag.toLowerCase())) {
+        merged.push(tag);
+      }
+    }
+    if (merged.length !== tags.length) saveTags(merged);
+  }
+
+  function handleRemoveTag(tag: string) {
+    saveTags(tags.filter((t) => t !== tag));
   }
 
   return (
@@ -182,6 +231,46 @@ export default function RecipeView({ recipe, onCustomize }: Props) {
         {statusError && (
           <p className="mt-2 text-xs text-red-500">{statusError}</p>
         )}
+
+        {(tags.length > 0 || isAdmin) && (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            {tags.map((tag) => (
+              <span
+                key={tag}
+                className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200"
+              >
+                {tag}
+                {isAdmin && (
+                  <button
+                    onClick={() => handleRemoveTag(tag)}
+                    disabled={tagsSaving}
+                    className="text-emerald-500 hover:text-emerald-800 leading-none disabled:opacity-40"
+                    aria-label={`Remove tag ${tag}`}
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
+            ))}
+            {isAdmin && (
+              <input
+                type="text"
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === ",") {
+                    e.preventDefault();
+                    handleAddTag();
+                  }
+                }}
+                disabled={tagsSaving}
+                placeholder="Add a tag…"
+                className="text-xs border border-stone-300 rounded px-1.5 py-0.5 w-24 focus:outline-none focus:ring-1 focus:ring-amber-500 disabled:opacity-40"
+              />
+            )}
+          </div>
+        )}
+        {tagsError && <p className="mt-2 text-xs text-red-500">{tagsError}</p>}
 
         {notes && (
           <section className="mt-6">
