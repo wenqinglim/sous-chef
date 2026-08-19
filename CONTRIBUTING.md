@@ -16,10 +16,12 @@ the site.
 3. **Wait a few minutes.** Claude replies on the issue with its progress, implements the
    change on a `claude/**` branch, and posts a **"Create PR"** link. Tap it to open the
    pull request.
-4. **Review happens automatically.** Claude also reviews every PR against the project's
-   conventions and comments on anything off. The repo owner approves and merges.
+4. **Review happens automatically.** When the PR opens, Claude reviews it against the
+   project's conventions and comments on anything off. The repo owner approves and merges.
 5. **Want tweaks?** Comment `@claude make the button green instead` on the issue or on
-   the PR — same conversation, same agent.
+   the PR — same conversation, same agent. After follow-up changes land, comment
+   `@claude review the latest changes` to get a fresh review (the automatic one only
+   covers the PR as it was opened).
 
 ## Writing a good task (this is prompting practice!)
 
