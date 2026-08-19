@@ -1,0 +1,10 @@
+name: "📝 General issue"
+description: "A bug report, note, or discussion that isn't a task for Claude."
+body:
+  - type: textarea
+    id: details
+    attributes:
+      label: What's up?
+      description: Describe the bug, idea, or question. If you want Claude to build it, use the "Ask Claude to build something" template instead.
+    validations:
+      required: true

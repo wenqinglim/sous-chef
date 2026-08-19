@@ -1,0 +1,79 @@
+name: "🤖 Ask Claude to build something"
+description: "Describe a change you'd like — Claude will write the code and open a pull request for review."
+labels: ["claude-task"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **How this works:** fill in the form, and Claude (our coding agent) will write the code and post a link to a pull request on this issue. A human reviews and approves every change before it goes live — so don't worry about breaking anything.
+
+        Describe what you want like you're texting a friend who codes: what should change, where, and how you'll know it worked. **One idea per request** — small, specific asks get much better results than big ones.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What do you want changed or added?
+      description: Be as concrete as you can. Name the thing you want, where it should appear, and what it should do.
+      placeholder: 'Example: On the grocery list page, add a "clear checked items" button below the checklist.'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: page
+    attributes:
+      label: Which page is this about?
+      description: "For the curious, these are the app's routes: Home is `/`, a recipe's page is `/recipes/[id]`, and the grocery list is `/grocery-list`."
+      options:
+        - "Home — the recipe library"
+        - "A recipe's page"
+        - "Grocery list page"
+        - "Somewhere else / not sure"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: ui-or-backend
+    attributes:
+      label: Is this about how it looks or how it works?
+      description: 'The visible part of an app (buttons, layout, text, colors) is called the "UI"; the invisible part (saving, importing, calculations) is the "backend". Not sure is a fine answer — Claude will figure it out.'
+      options:
+        - "Not sure"
+        - "How it looks (the UI — buttons, layout, text, colors)"
+        - "How it works behind the scenes (the backend — saving, importing, calculations)"
+        - "Both"
+      default: 0
+
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Who is this for?
+      description: "This app has two kinds of people: the admin (the site owner, who logs in to import, edit, and curate recipes) and regular visitors (who just browse). Admin-only features go behind the existing login."
+      options:
+        - "Not sure"
+        - "Everyone"
+        - "Only the admin (the site owner who adds/edits recipes)"
+        - "Only regular visitors (people browsing recipes)"
+      default: 0
+
+  - type: textarea
+    id: done
+    attributes:
+      label: How will we know it's done?
+      description: Describe what you'd see or do to check the change worked — in plain words.
+      placeholder: "Example: When I tap the button, checked items disappear, and the copied list doesn't include them."
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots (optional)
+      description: Tap the image/paperclip icon or paste a screenshot here — mark up what you want changed if you can. Screenshots are the fastest way to show Claude what you mean.
+      placeholder: Attach or paste images here.
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Anything Claude should NOT touch? (optional)
+      description: Setting boundaries keeps the change small and easy to review.
+      placeholder: "Example: Don't change how ingredients are added up — just the button."
