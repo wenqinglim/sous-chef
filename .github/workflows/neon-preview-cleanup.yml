@@ -1,0 +1,19 @@
+name: Cleanup Neon preview branch
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  delete-branch:
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      # Assumes Vercel's Neon integration names branches "preview/<git-branch>" verbatim.
+      # Verified against a live branch before merging; re-check if branch names start
+      # containing characters Vercel/Neon might sanitize (uppercase, nested slashes, etc).
+      - uses: neondatabase/delete-branch-action@v3
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch: preview/${{ github.head_ref }}
+          api_key: ${{ secrets.NEON_API_KEY }}
