@@ -1,0 +1,8 @@
+# Default owner for everything in the repo. With branch protection's
+# "Require review from Code Owners" enabled on main, contributor PRs need
+# @wenqinglim's approval before they can merge. PRs *authored by*
+# @wenqinglim can't be self-approved (GitHub ignores the author's own
+# review), so leave admin bypass enabled in the branch protection rule —
+# don't tick "Do not allow bypassing the above settings" — or those PRs
+# become unmergeable.
+* @wenqinglim
