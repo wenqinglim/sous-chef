@@ -1,0 +1,4 @@
+# Default owner for everything in the repo. With branch protection's
+# "Require review from Code Owners" enabled on main, every PR needs
+# @wenqinglim's approval before it can merge.
+* @wenqinglim
