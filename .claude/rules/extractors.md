@@ -32,6 +32,17 @@ Every step logs `[IG] …` (`console.error` → Vercel logs) and emits a human-r
 
 > **Operational note:** `APIFY_TOKEN` is a personal Apify API token (console.apify.com → Settings → API & Integrations). Free tier ($5/mo credit) covers personal use. If reel imports start failing, check Apify run logs / remaining credit.
 
+## Automatic recipe tagging
+
+`src/lib/extractors/auto-tagger.ts` assigns tags the moment a recipe is imported, via `inferAutoTags()` passed as a thunk to `upsertRecipeByUrl(recipe, { autoTags })` from `saveExtracted()` in `/api/extract` — the single choke point all three import paths (schema.org, LLM-fallback, Instagram) funnel through. Two independent signal sources, both near-zero cost, tuned for precision over recall (an untagged recipe beats a wrong tag):
+
+- **Protein / base-ingredient tags** (`inferIngredientTags`) — deterministic, $0. Runs every raw ingredient name through the same `lookupIngredient()` registry lookup the normalization pipeline uses, and collects the matched entries' `tag_hints` (see `.claude/rules/normalization.md`). No LLM call; misses ingredients outside the registry rather than guessing.
+- **Region/cuisine tags** (`inferRegionTags`) — one small Haiku call per import (same `claude-haiku-4-5-20251001` / zod-validated-JSON / fail-gracefully-to-`[]` pattern as `time-estimator.ts` and `normalizers/llm-fallback.ts`). Constrained to a closed vocabulary (`REGION_TAGS` in `auto-tagger.ts`) via a zod enum, and gated at confidence ≥ 0.7, capped at 2 tags.
+
+`upsertRecipeByUrl` (`src/lib/db/recipes.ts`) only invokes the `autoTags` thunk — and only writes its result — on the upsert's `create` branch, i.e. exactly when the URL is brand new. A re-extract of an already-saved URL never calls it at all, so no Haiku call is wasted computing tags that would just be discarded (and an already-edited row short-circuits even earlier, before either the thunk or the upsert run).
+
+Existing recipes were backfilled once via `scripts/backfill-tags.js` (merges into existing tags, doesn't overwrite manual ones — safe to re-run).
+
 ## Recipe sections are preserved, not flattened
 
 Recipes group ingredients/steps under subheadings (e.g. "For the sauce"). Each `RecipeIngredient` and `InstructionStep` carries an optional `section` label. Detail/editor UIs render consecutive same-label runs under that heading (`groupBySection` in `src/lib/recipe/sections.ts`).

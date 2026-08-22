@@ -307,7 +307,7 @@ describe("upsertRecipeByUrl", () => {
     });
   });
 
-  test("never writes status or tags — re-extract keeps them, create takes the DB default", async () => {
+  test("never writes status or tags on update — re-extract of an existing row keeps them", async () => {
     mockRecipe.findUnique.mockResolvedValue(makeRow({ id: "old-id" }));
     mockRecipe.upsert.mockImplementation(
       ({ update }: { update: Record<string, unknown> }) =>
@@ -320,7 +320,63 @@ describe("upsertRecipeByUrl", () => {
     expect(call.update).not.toHaveProperty("status");
     expect(call.create).not.toHaveProperty("status");
     expect(call.update).not.toHaveProperty("tags");
-    expect(call.create).not.toHaveProperty("tags");
+  });
+
+  test("options.autoTags seeds tags on a brand-new row", async () => {
+    mockRecipe.findUnique.mockResolvedValue(null);
+    mockRecipe.upsert.mockImplementation(({ create }: { create: Record<string, unknown> }) =>
+      Promise.resolve(makeRow({ ...create }))
+    );
+
+    await upsertRecipeByUrl(makeRecipe({ id: "fresh-id" }), {
+      autoTags: async () => ["Chinese", "Chicken", "Rice"],
+    });
+
+    expect(mockRecipe.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ tags: ["Chinese", "Chicken", "Rice"] }),
+      })
+    );
+  });
+
+  test("options.autoTags is never invoked on a re-extract of an existing URL (avoids a wasted LLM call)", async () => {
+    mockRecipe.findUnique.mockResolvedValue(makeRow({ id: "old-id", tags: ["curry"] }));
+    mockRecipe.upsert.mockImplementation(
+      ({ update }: { update: Record<string, unknown> }) =>
+        Promise.resolve(makeRow({ id: "old-id", tags: ["curry"], ...update }))
+    );
+
+    const autoTags = jest.fn().mockResolvedValue(["Italian"]);
+    await upsertRecipeByUrl(makeRecipe({ id: "fresh-id" }), { autoTags });
+
+    expect(autoTags).not.toHaveBeenCalled();
+    const call = mockRecipe.upsert.mock.calls[0][0];
+    expect(call.update).not.toHaveProperty("tags");
+  });
+
+  test("options.autoTags is never invoked when the existing row is edited (short-circuits before the upsert)", async () => {
+    mockRecipe.findUnique.mockResolvedValue(
+      makeRow({ id: "old-id", edited: true, tags: ["curry"] })
+    );
+
+    const autoTags = jest.fn().mockResolvedValue(["Italian"]);
+    await upsertRecipeByUrl(makeRecipe({ id: "fresh-id" }), { autoTags });
+
+    expect(autoTags).not.toHaveBeenCalled();
+    expect(mockRecipe.upsert).not.toHaveBeenCalled();
+  });
+
+  test("no autoTags given → create takes an empty tags array (DB default)", async () => {
+    mockRecipe.findUnique.mockResolvedValue(null);
+    mockRecipe.upsert.mockImplementation(({ create }: { create: Record<string, unknown> }) =>
+      Promise.resolve(makeRow({ ...create }))
+    );
+
+    await upsertRecipeByUrl(makeRecipe({ id: "fresh-id" }));
+
+    expect(mockRecipe.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ create: expect.objectContaining({ tags: [] }) })
+    );
   });
 });
 

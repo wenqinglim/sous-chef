@@ -23,6 +23,7 @@ CanonicalIngredient {
   is_staple: boolean
   canonical_unit: string
   conversion_factors: Record<string, number>
+  tag_hints?: string[]   // auto-tag labels contributed when this is a recipe's base protein/carb, e.g. ["Chicken"], ["Rice"]
 }
 
 Recipe {
@@ -37,7 +38,7 @@ Recipe {
   notes?: string | null   // freeform user notes (customization); absent on fresh extracts
   edited?: boolean         // true once a user saved an edit; guards against re-extract clobber
   status?: "tried_and_tested" | "saved_for_later"  // curation status; non-admins only see tried_and_tested in lists
-  tags?: string[]         // freeform curation tags, e.g. "curry", "weeknight"; open vocabulary
+  tags?: string[]         // freeform curation tags, e.g. "curry", "weeknight"; open vocabulary. Seeded with auto-tags (region/protein/base-carb) on first import; admin-editable after that
 }
 
 RecipeIngredient {

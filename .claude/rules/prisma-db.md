@@ -25,7 +25,7 @@ paths:
 - `listRecipes()` filters to `tried_and_tested` unless called with `{ includeUntried: true }` (admin-only, decided by the route via `isAdmin()`).
 - `tags` column: `text[]`, defaults to `{}` (20260813 migration). Freeform, open-vocabulary — no admin-configured enum. Deduped case-insensitively per recipe on write (first-seen casing wins), but two recipes can still store the same tag under different casing — cross-recipe matching (library filter bar) folds case; see `src/lib/recipe-filter.ts`.
 - Both are set via `setRecipeMetadata(id, { status?, tags? })` / `PATCH /api/recipes/[id]` — never through `updateRecipe()`, so it does **not** flip `edited`. Both fields are written in a single `prisma.recipe.update()` call so a request setting both at once is atomic.
-- `upsertRecipeByUrl()` never writes `status` or `tags` (both excluded from `toRowData`), so a re-extract keeps the stored curation metadata.
+- `upsertRecipeByUrl()` never writes `status` (excluded from `toRowData`), so a re-extract keeps the stored status. `tags` is similarly excluded from `toRowData`/the update branch, but the upsert's `create` branch does seed `tags` from `options.autoTags` (see `src/lib/extractors/auto-tagger.ts`) — only on a brand-new row, never on re-extract.
 
 ## Multi-user migration path (single-user for now)
 

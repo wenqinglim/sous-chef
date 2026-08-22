@@ -33,6 +33,8 @@ export interface CanonicalIngredient {
   conversion_factors: Record<string, number>;
   /** g per ml, for cross-family (volume↔weight) conversion of liquids */
   density_g_per_ml?: number;
+  /** Auto-tag labels this ingredient contributes when it's the base protein/carb of a recipe, e.g. ["Chicken"], ["Rice"] */
+  tag_hints?: string[];
 }
 
 // ─── Recipe (output of the Extraction layer) ─────────────────────────────────

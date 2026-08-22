@@ -19,6 +19,8 @@ paths:
 
 Heuristic: unqualified "soy sauce" → `soy_sauce_light` if `cuisine_source === 'asian'`.
 
+**`tag_hints`** — an optional `string[]` on entries that represent a recipe's base protein or base carb (e.g. `chicken_breast` → `["Chicken"]`, `tofu_firm` → `["Tofu"]`, `rice_jasmine` → `["Rice"]`, `pasta_spaghetti` → `["Pasta"]`). Most entries (aromatics, sauces, spices) have no `tag_hints`. Read by `src/lib/extractors/auto-tagger.ts` to auto-assign protein/base-ingredient tags on import — see that module's doc comment and `.claude/rules/extractors.md`.
+
 ## Unit conversions (base units: ml, g, each)
 
 | Unit | → ml | | Unit | → g |
