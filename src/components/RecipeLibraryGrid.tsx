@@ -173,6 +173,16 @@ export default function RecipeLibraryGrid() {
         />
       </div>
 
+      {ordered.length > 0 && (
+        <p
+          className="mt-2 text-xs text-stone-500"
+          role="status"
+          aria-live="polite"
+        >
+          {ordered.length} {ordered.length === 1 ? "recipe" : "recipes"}
+        </p>
+      )}
+
       {allTags.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {allTags.map((tag) => {
