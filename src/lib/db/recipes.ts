@@ -161,11 +161,15 @@ export async function getRecipe(id: string): Promise<Recipe | null> {
  * `options.autoTags`, if given, seeds tags on a brand-new row only (the
  * `create` branch of the upsert) — a re-extract of an existing URL never
  * touches tags, so auto-tagging never clobbers curation an admin has since
- * done. See src/lib/extractors/auto-tagger.ts.
+ * done. It's a thunk rather than a precomputed array so the (LLM-backed)
+ * region-tag inference only runs when we already know the row is new —
+ * every re-extract of an already-saved URL skips it entirely rather than
+ * computing tags that would just be discarded. See
+ * src/lib/extractors/auto-tagger.ts.
  */
 export async function upsertRecipeByUrl(
   recipe: Recipe,
-  options?: { autoTags?: string[] }
+  options?: { autoTags?: () => Promise<string[]> }
 ): Promise<Recipe> {
   const url = normalizeUrl(recipe.url);
   const existing = await prisma.recipe.findUnique({ where: { url } });
@@ -178,10 +182,11 @@ export async function upsertRecipeByUrl(
   const id = existing?.id ?? recipe.id;
   const stored = withRecipeId({ ...recipe, url }, id);
   const data = toRowData(stored, url);
+  const autoTags = existing ? [] : (await options?.autoTags?.()) ?? [];
 
   const row = await prisma.recipe.upsert({
     where: { url },
-    create: { id, ...data, tags: options?.autoTags ?? [] },
+    create: { id, ...data, tags: autoTags },
     update: data,
   });
   return rowToRecipe(row);

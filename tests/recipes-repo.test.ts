@@ -329,7 +329,7 @@ describe("upsertRecipeByUrl", () => {
     );
 
     await upsertRecipeByUrl(makeRecipe({ id: "fresh-id" }), {
-      autoTags: ["Chinese", "Chicken", "Rice"],
+      autoTags: async () => ["Chinese", "Chicken", "Rice"],
     });
 
     expect(mockRecipe.upsert).toHaveBeenCalledWith(
@@ -339,19 +339,31 @@ describe("upsertRecipeByUrl", () => {
     );
   });
 
-  test("options.autoTags is ignored on a re-extract of an existing URL", async () => {
+  test("options.autoTags is never invoked on a re-extract of an existing URL (avoids a wasted LLM call)", async () => {
     mockRecipe.findUnique.mockResolvedValue(makeRow({ id: "old-id", tags: ["curry"] }));
     mockRecipe.upsert.mockImplementation(
       ({ update }: { update: Record<string, unknown> }) =>
         Promise.resolve(makeRow({ id: "old-id", tags: ["curry"], ...update }))
     );
 
-    await upsertRecipeByUrl(makeRecipe({ id: "fresh-id" }), {
-      autoTags: ["Italian"],
-    });
+    const autoTags = jest.fn().mockResolvedValue(["Italian"]);
+    await upsertRecipeByUrl(makeRecipe({ id: "fresh-id" }), { autoTags });
 
+    expect(autoTags).not.toHaveBeenCalled();
     const call = mockRecipe.upsert.mock.calls[0][0];
     expect(call.update).not.toHaveProperty("tags");
+  });
+
+  test("options.autoTags is never invoked when the existing row is edited (short-circuits before the upsert)", async () => {
+    mockRecipe.findUnique.mockResolvedValue(
+      makeRow({ id: "old-id", edited: true, tags: ["curry"] })
+    );
+
+    const autoTags = jest.fn().mockResolvedValue(["Italian"]);
+    await upsertRecipeByUrl(makeRecipe({ id: "fresh-id" }), { autoTags });
+
+    expect(autoTags).not.toHaveBeenCalled();
+    expect(mockRecipe.upsert).not.toHaveBeenCalled();
   });
 
   test("no autoTags given → create takes an empty tags array (DB default)", async () => {

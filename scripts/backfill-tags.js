@@ -22,9 +22,12 @@ const registryData = require("../src/data/ingredients.json");
 const prisma = new PrismaClient();
 const anthropic = new Anthropic();
 
-// ─── Ingredient registry (trimmed port of src/lib/registry/registry.ts +
-//     src/lib/normalizers/lookup.ts — good enough for a one-off backfill;
-//     recipe.ingredients[].name is already stripped of quantity/unit/prep). ──
+// ─── Ingredient registry lookup — full port of the matching algorithm in
+//     src/lib/registry/registry.ts + src/lib/normalizers/lookup.ts (name
+//     cleaning, adjective-stripping loop, singular variants). Not imported
+//     directly: this is a plain CommonJS script with no path-alias/ts-node
+//     setup, same constraint as scripts/backfill-times.js. If lookupIngredient
+//     changes, mirror the change here too so backfill parity holds. ──────────
 
 function normaliseForLookup(s) {
   if (/[^\x00-\x7F]/.test(s)) return s.trim().replace(/\s+/g, " ");
@@ -37,22 +40,113 @@ function normaliseForLookup(s) {
 }
 
 const byAlias = new Map();
+const tagHintsById = new Map();
 for (const ingredient of registryData.ingredients) {
   if (!ingredient.tag_hints || ingredient.tag_hints.length === 0) continue;
-  byAlias.set(normaliseForLookup(ingredient.name), ingredient.tag_hints);
+  tagHintsById.set(ingredient.id, ingredient.tag_hints);
+  byAlias.set(normaliseForLookup(ingredient.name), ingredient.id);
   for (const alias of ingredient.aliases) {
-    byAlias.set(normaliseForLookup(alias), ingredient.tag_hints);
+    byAlias.set(normaliseForLookup(alias), ingredient.id);
   }
 }
+// findByAlias must also see entries with no tag_hints, else an adjective/
+// singular retry could "resolve" to an untagged entry when a tagged entry
+// was the correct match at an earlier, unretried step.
+const idByAlias = new Map();
+for (const ingredient of registryData.ingredients) {
+  idByAlias.set(normaliseForLookup(ingredient.name), ingredient.id);
+  for (const alias of ingredient.aliases) idByAlias.set(normaliseForLookup(alias), ingredient.id);
+}
+function findByAlias(name) {
+  return idByAlias.get(normaliseForLookup(name)) ?? null;
+}
 
-const STRIPPABLE_ADJECTIVES_RE =
-  /^(?:fresh|dried|ground|whole|raw|cooked|frozen|thawed|canned|tinned|minced|chopped|sliced|grated|peeled|trimmed|crushed|small|medium|large|good|quality)\s+/i;
+const STRIPPABLE_ADJECTIVES = [
+  "fresh", "dried", "ground", "whole", "raw", "cooked", "frozen", "thawed",
+  "canned", "tinned", "low-sodium", "low sodium", "reduced-sodium",
+  "reduced sodium", "unsalted", "salted", "roasted", "toasted", "minced",
+  "chopped", "sliced", "grated", "peeled", "trimmed", "crushed", "small",
+  "medium", "large", "good", "quality",
+];
+const ADJECTIVE_RE = new RegExp(
+  `^(?:${STRIPPABLE_ADJECTIVES.map((a) => a.replace("-", "[-\\s]?")).join("|")})\\s+`,
+  "i"
+);
+
+function stripParentheticals(name) {
+  return name.replace(/\s*\([^)]*\)/g, "").trim();
+}
+
+const LEADING_DETERMINER_RE =
+  /^(?:half\s+of\s+a|half\s+a|half|a\s+few|a\s+pinch\s+of|a\s+handful\s+of|some|few|a|an|the)\s+/i;
+const PURPOSE_PHRASE_RE =
+  /\s+(?:for\s+(?:serving|garnish|the\s+\w+|dusting|drizzling)|to\s+(?:serve|garnish|finish)|plus\s+more.*|divided|as\s+needed|if\s+desired|optional)\s*$/i;
+
+function stripDeterminersAndPurpose(name) {
+  let s = name.trim();
+  let prev = "";
+  while (s !== prev) {
+    prev = s;
+    s = s.replace(LEADING_DETERMINER_RE, "").replace(PURPOSE_PHRASE_RE, "").trim();
+  }
+  return s;
+}
+
+function singularVariants(name) {
+  const trimmed = name.trim();
+  if (!trimmed) return [];
+  const parts = trimmed.split(/\s+/);
+  const last = parts[parts.length - 1];
+  const prefix = parts.slice(0, -1).join(" ");
+  const join = (w) => (prefix ? `${prefix} ${w}` : w);
+
+  const wordVariants = new Set();
+  if (last.endsWith("ies") && last.length > 3) {
+    wordVariants.add(last.slice(0, -3) + "y");
+    wordVariants.add(last.slice(0, -3) + "i");
+    wordVariants.add(last.slice(0, -2));
+  }
+  if (last === "leaves") wordVariants.add("leaf");
+  if (last.endsWith("es") && last.length > 2) wordVariants.add(last.slice(0, -2));
+  if (last.endsWith("s") && last.length > 1) wordVariants.add(last.slice(0, -1));
+
+  return Array.from(wordVariants)
+    .filter((w) => w.length > 1)
+    .map(join);
+}
+
+/** Full port of lookupIngredient() (minus soy sauce disambiguation, which has no tag_hints). */
+function resolveIngredientId(rawName) {
+  const name = stripDeterminersAndPurpose(stripParentheticals(rawName));
+
+  const direct = findByAlias(name);
+  if (direct) return direct;
+
+  let stripped = name;
+  let prev = "";
+  while (stripped !== prev) {
+    prev = stripped;
+    stripped = stripped.replace(ADJECTIVE_RE, "").trim();
+  }
+  if (stripped !== name && stripped.length > 0) {
+    const afterAdj = findByAlias(stripped);
+    if (afterAdj) return afterAdj;
+  }
+
+  for (const candidate of [...singularVariants(name), ...singularVariants(stripped)]) {
+    if (candidate.length <= 2) continue;
+    const match = findByAlias(candidate);
+    if (match) return match;
+  }
+
+  return null;
+}
 
 function inferIngredientTags(ingredients) {
   const tags = new Set();
   for (const ing of ingredients) {
-    const name = normaliseForLookup(ing.name || "");
-    const hints = byAlias.get(name) ?? byAlias.get(name.replace(STRIPPABLE_ADJECTIVES_RE, "").trim());
+    const id = resolveIngredientId(ing.name || "");
+    const hints = id ? tagHintsById.get(id) : undefined;
     if (hints) for (const tag of hints) tags.add(tag);
   }
   return Array.from(tags);

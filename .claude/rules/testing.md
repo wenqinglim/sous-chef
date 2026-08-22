@@ -7,7 +7,7 @@ paths:
 
 # Testing
 
-`npm test` — 512 tests across 20 suites; Prisma is mocked (no DB needed).
+`npm test` — 496 tests across 18 suites; Prisma is mocked (no DB needed).
 
 ## Suite map
 
@@ -31,8 +31,6 @@ paths:
 | `tests/recipes-repo.test.ts` | Recipe repository mappers + mocked-Prisma flows (upsert id retention, URL dedupe, summaries, `updateRecipe` edits, edited-recipe re-extract guard, status filtering in `listRecipes`, `setRecipeMetadata` never flips `edited`, upsert never writes status/tags on update, `options.autoTags` seeds tags on create only). |
 | `tests/recipe-filter.test.ts` | `filterSummaries()` (`src/lib/recipe-filter.ts`) — title search, single/multiple tag OR-match, empty selection = no filtering. |
 | `tests/auto-tagger.test.ts` | `inferIngredientTags` (registry `tag_hints` lookup, dedupe, adjective-stripping via `lookupIngredient`) + `inferRegionTags` (mocked Anthropic: closed-vocab enum, confidence threshold, 2-tag cap, graceful degradation) + `inferAutoTags` combining/deduping both. |
-| `tests/time-estimator.test.ts` | `estimateRecipeTimes` (mocked Anthropic): valid/partial/all-null estimates, markdown-fenced unwrap, schema violation, API error, missing key — all fail-gracefully to `null`. |
-| `tests/recipe-time.test.ts` | `src/lib/recipe/time.ts` time-display helpers. |
 
 ## Manual verification checklist (before releasing a UI change)
 

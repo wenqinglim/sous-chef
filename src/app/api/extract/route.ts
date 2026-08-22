@@ -63,8 +63,9 @@ async function saveExtracted(
   controller: ReadableStreamDefaultController
 ) {
   try {
-    const autoTags = await inferAutoTags(recipe);
-    const saved = await upsertRecipeByUrl(recipe, { autoTags });
+    const saved = await upsertRecipeByUrl(recipe, {
+      autoTags: () => inferAutoTags(recipe),
+    });
     emit(controller, { type: "result", recipe: saved, saved: true });
   } catch (err) {
     console.error(`Failed to save recipe to library (${recipe.url}):`, err);
