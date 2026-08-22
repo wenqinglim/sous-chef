@@ -28,6 +28,7 @@ import {
 } from "@/lib/extractors/instagram";
 import { safeFetch, BlockedUrlError } from "@/lib/extractors/safe-fetch";
 import { fetchPageHtmlViaScraper } from "@/lib/extractors/page-scraper";
+import { inferAutoTags } from "@/lib/extractors/auto-tagger";
 import { upsertRecipeByUrl } from "@/lib/db/recipes";
 import { requireAdmin } from "@/lib/auth";
 
@@ -62,7 +63,8 @@ async function saveExtracted(
   controller: ReadableStreamDefaultController
 ) {
   try {
-    const saved = await upsertRecipeByUrl(recipe);
+    const autoTags = await inferAutoTags(recipe);
+    const saved = await upsertRecipeByUrl(recipe, { autoTags });
     emit(controller, { type: "result", recipe: saved, saved: true });
   } catch (err) {
     console.error(`Failed to save recipe to library (${recipe.url}):`, err);

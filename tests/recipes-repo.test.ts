@@ -307,7 +307,7 @@ describe("upsertRecipeByUrl", () => {
     });
   });
 
-  test("never writes status or tags — re-extract keeps them, create takes the DB default", async () => {
+  test("never writes status or tags on update — re-extract of an existing row keeps them", async () => {
     mockRecipe.findUnique.mockResolvedValue(makeRow({ id: "old-id" }));
     mockRecipe.upsert.mockImplementation(
       ({ update }: { update: Record<string, unknown> }) =>
@@ -320,7 +320,51 @@ describe("upsertRecipeByUrl", () => {
     expect(call.update).not.toHaveProperty("status");
     expect(call.create).not.toHaveProperty("status");
     expect(call.update).not.toHaveProperty("tags");
-    expect(call.create).not.toHaveProperty("tags");
+  });
+
+  test("options.autoTags seeds tags on a brand-new row", async () => {
+    mockRecipe.findUnique.mockResolvedValue(null);
+    mockRecipe.upsert.mockImplementation(({ create }: { create: Record<string, unknown> }) =>
+      Promise.resolve(makeRow({ ...create }))
+    );
+
+    await upsertRecipeByUrl(makeRecipe({ id: "fresh-id" }), {
+      autoTags: ["Chinese", "Chicken", "Rice"],
+    });
+
+    expect(mockRecipe.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ tags: ["Chinese", "Chicken", "Rice"] }),
+      })
+    );
+  });
+
+  test("options.autoTags is ignored on a re-extract of an existing URL", async () => {
+    mockRecipe.findUnique.mockResolvedValue(makeRow({ id: "old-id", tags: ["curry"] }));
+    mockRecipe.upsert.mockImplementation(
+      ({ update }: { update: Record<string, unknown> }) =>
+        Promise.resolve(makeRow({ id: "old-id", tags: ["curry"], ...update }))
+    );
+
+    await upsertRecipeByUrl(makeRecipe({ id: "fresh-id" }), {
+      autoTags: ["Italian"],
+    });
+
+    const call = mockRecipe.upsert.mock.calls[0][0];
+    expect(call.update).not.toHaveProperty("tags");
+  });
+
+  test("no autoTags given → create takes an empty tags array (DB default)", async () => {
+    mockRecipe.findUnique.mockResolvedValue(null);
+    mockRecipe.upsert.mockImplementation(({ create }: { create: Record<string, unknown> }) =>
+      Promise.resolve(makeRow({ ...create }))
+    );
+
+    await upsertRecipeByUrl(makeRecipe({ id: "fresh-id" }));
+
+    expect(mockRecipe.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ create: expect.objectContaining({ tags: [] }) })
+    );
   });
 });
 

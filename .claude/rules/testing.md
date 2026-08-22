@@ -7,7 +7,7 @@ paths:
 
 # Testing
 
-`npm test` — 446 tests across 16 suites; Prisma is mocked (no DB needed).
+`npm test` — 512 tests across 20 suites; Prisma is mocked (no DB needed).
 
 ## Suite map
 
@@ -28,12 +28,15 @@ paths:
 | `tests/rescale.test.ts` | Ingredient quantity rescaling by servings. |
 | `tests/pipeline.test.ts` | Aggregate + purchase planning + full `derive()`; purchase-unit + slice→weight + metric-output regressions. |
 | `tests/safe-fetch.test.ts` | SSRF protections. |
-| `tests/recipes-repo.test.ts` | Recipe repository mappers + mocked-Prisma flows (upsert id retention, URL dedupe, summaries, `updateRecipe` edits, edited-recipe re-extract guard, status filtering in `listRecipes`, `setRecipeStatus`/`setRecipeTags` never flip `edited`, upsert never writes status or tags). |
+| `tests/recipes-repo.test.ts` | Recipe repository mappers + mocked-Prisma flows (upsert id retention, URL dedupe, summaries, `updateRecipe` edits, edited-recipe re-extract guard, status filtering in `listRecipes`, `setRecipeMetadata` never flips `edited`, upsert never writes status/tags on update, `options.autoTags` seeds tags on create only). |
 | `tests/recipe-filter.test.ts` | `filterSummaries()` (`src/lib/recipe-filter.ts`) — title search, single/multiple tag OR-match, empty selection = no filtering. |
+| `tests/auto-tagger.test.ts` | `inferIngredientTags` (registry `tag_hints` lookup, dedupe, adjective-stripping via `lookupIngredient`) + `inferRegionTags` (mocked Anthropic: closed-vocab enum, confidence threshold, 2-tag cap, graceful degradation) + `inferAutoTags` combining/deduping both. |
+| `tests/time-estimator.test.ts` | `estimateRecipeTimes` (mocked Anthropic): valid/partial/all-null estimates, markdown-fenced unwrap, schema violation, API error, missing key — all fail-gracefully to `null`. |
+| `tests/recipe-time.test.ts` | `src/lib/recipe/time.ts` time-display helpers. |
 
 ## Manual verification checklist (before releasing a UI change)
 
-0. **Library home**: on `/`, paste a RecipeTin Eats URL into "Add a recipe" → lands on `/recipes/[id]`; card appears on `/`.
+0. **Library home**: on `/`, paste a RecipeTin Eats URL into "Add a recipe" → lands on `/recipes/[id]`; card appears on `/`. A chicken/rice-based recipe should land with auto-assigned tags (e.g. "Chicken", "Rice", a region tag) already visible in the tag editor — see 1c.
 1. **Detail view**: open a saved recipe → title, ingredients, numbered steps render; "View original recipe ↗" opens `recipe.url` in new tab.
 1a. **Customize**: "✏️ Customize" → edit an ingredient, add/remove a step, add a note → Save → reload: edits persist, "Customized" badge shows. Re-importing same URL no longer overwrites.
 1b. **Status**: as admin, import a new recipe → "Saved for later" badge on its card; card badge (or detail-page button) toggles it to tried & tested; in an incognito window only tried & tested recipes appear on `/` and in the grocery picker, but a direct link to a saved-for-later recipe still renders (with badge). Toggling status must NOT add the "Customized" badge.

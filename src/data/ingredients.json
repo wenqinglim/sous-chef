@@ -714,6 +714,7 @@
         "whole eggs",
         "chicken egg"
       ],
+      "tag_hints": ["Egg"],
       "aisle": "dairy",
       "default_purchase_unit": "dozen",
       "default_purchase_size": 12,
@@ -878,6 +879,7 @@
         "chicken thigh fillets",
         "chicken thighs"
       ],
+      "tag_hints": ["Chicken"],
       "aisle": "meat",
       "default_purchase_unit": "g",
       "default_purchase_size": 1,
@@ -900,6 +902,7 @@
         "skinless chicken breast",
         "chicken fillets"
       ],
+      "tag_hints": ["Chicken"],
       "aisle": "meat",
       "default_purchase_unit": "g",
       "default_purchase_size": 1,
@@ -920,6 +923,7 @@
         "minced pork",
         "pork mince"
       ],
+      "tag_hints": ["Pork"],
       "aisle": "meat",
       "default_purchase_unit": "g",
       "default_purchase_size": 1,
@@ -941,6 +945,7 @@
         "beef mince",
         "hamburger meat"
       ],
+      "tag_hints": ["Beef"],
       "aisle": "meat",
       "default_purchase_unit": "g",
       "default_purchase_size": 1,
@@ -961,6 +966,7 @@
         "pork belly slices",
         "五花肉"
       ],
+      "tag_hints": ["Pork"],
       "aisle": "meat",
       "default_purchase_unit": "g",
       "default_purchase_size": 1,
@@ -985,6 +991,7 @@
         "king prawns",
         "medium shrimp"
       ],
+      "tag_hints": ["Shrimp"],
       "aisle": "seafood",
       "default_purchase_unit": "each",
       "default_purchase_size": 1,
@@ -1435,6 +1442,7 @@
         "chinese sausage",
         "腊肠"
       ],
+      "tag_hints": ["Pork"],
       "aisle": "asian_grocery",
       "default_purchase_unit": "package",
       "default_purchase_size": 1,
@@ -1454,6 +1462,7 @@
         "regular tofu",
         "老豆腐"
       ],
+      "tag_hints": ["Tofu"],
       "aisle": "asian_grocery",
       "default_purchase_unit": "block",
       "default_purchase_size": 400,
@@ -1476,6 +1485,7 @@
         "嫩豆腐",
         "japanese tofu"
       ],
+      "tag_hints": ["Tofu"],
       "aisle": "asian_grocery",
       "default_purchase_unit": "block",
       "default_purchase_size": 350,
@@ -1539,6 +1549,7 @@
         "thai fragrant rice",
         "ข้าวหอมมะลิ"
       ],
+      "tag_hints": ["Rice"],
       "aisle": "asian_grocery",
       "default_purchase_unit": "bag",
       "default_purchase_size": 2000,
@@ -1562,6 +1573,7 @@
         "ข้าวเหนียว",
         "糯米"
       ],
+      "tag_hints": ["Rice"],
       "aisle": "asian_grocery",
       "default_purchase_unit": "bag",
       "default_purchase_size": 1000,
@@ -1585,6 +1597,7 @@
         "เส้นใหญ่",
         "河粉"
       ],
+      "tag_hints": ["Noodles"],
       "aisle": "asian_grocery",
       "default_purchase_unit": "package",
       "default_purchase_size": 400,
@@ -1608,6 +1621,7 @@
         "粉丝",
         "วุ้นเส้น"
       ],
+      "tag_hints": ["Noodles"],
       "aisle": "asian_grocery",
       "default_purchase_unit": "package",
       "default_purchase_size": 200,
@@ -1628,6 +1642,7 @@
         "lo mein noodles",
         "鸡蛋面"
       ],
+      "tag_hints": ["Noodles"],
       "aisle": "asian_grocery",
       "default_purchase_unit": "package",
       "default_purchase_size": 400,
@@ -2432,6 +2447,7 @@
         "basmati rice",
         "basmati"
       ],
+      "tag_hints": ["Rice"],
       "aisle": "pantry",
       "default_purchase_unit": "bag",
       "default_purchase_size": 2000,
@@ -2453,6 +2469,7 @@
         "thin spaghetti",
         "linguine"
       ],
+      "tag_hints": ["Pasta"],
       "aisle": "pantry",
       "default_purchase_unit": "package",
       "default_purchase_size": 500,
@@ -2740,6 +2757,7 @@
         "duck marylands",
         "duck leg quarter"
       ],
+      "tag_hints": ["Duck"],
       "aisle": "meat",
       "default_purchase_unit": "each",
       "default_purchase_size": 1,
