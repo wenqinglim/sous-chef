@@ -99,6 +99,15 @@ jobs:
       group: claude-issue-${{ github.event.issue.number }}
       cancel-in-progress: false
     runs-on: ubuntu-latest
+    # Job-level permissions replace the top-level block wholesale, so the ones
+    # this job still needs are restated. `contents: write` is what lets Claude
+    # push the claude/** branch — under the top-level `contents: read` the push
+    # 403s as github-actions[bot]. Kept off the review jobs, which only comment.
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -108,6 +117,11 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           label_trigger: claude-task
+          # Without an explicit allowlist these need an approval step that does
+          # not exist in a CI run, so Claude cannot verify its own changes.
+          # `npm test` needs no DATABASE_URL — Prisma is mocked.
+          claude_args: |
+            --allowedTools "Bash(npm install),Bash(npm test),Bash(npm run lint),Bash(npx tsc:*)"
 
   mention-response:
     if: |
