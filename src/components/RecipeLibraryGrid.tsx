@@ -37,6 +37,7 @@ export default function RecipeLibraryGrid() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab] = useState<RecipeStatus>("tried_and_tested");
   // Hooks must run unconditionally (before the loading/empty early returns).
   const allTags = useMemo(() => uniqueTags(summaries ?? []), [summaries]);
 
@@ -149,14 +150,19 @@ export default function RecipeLibraryGrid() {
 
   const filtered = filterSummaries(summaries, query, selectedTags);
 
-  // Saved-for-later recipes sink below tried-and-tested ones (admins are the
-  // only viewers who receive them); the stable sort keeps createdAt-desc order
-  // within each group.
-  const ordered = [...filtered].sort(
-    (a, b) =>
-      Number(a.status === "saved_for_later") -
-      Number(b.status === "saved_for_later")
+  // Non-admins only ever receive tried_and_tested rows (server-filtered), so
+  // there's nothing to split into tabs for them — they see one plain grid.
+  const triedAndTested = filtered.filter(
+    (s) => s.status === "tried_and_tested"
   );
+  const savedForLater = filtered.filter(
+    (s) => s.status === "saved_for_later"
+  );
+  const ordered = isAdmin
+    ? activeTab === "tried_and_tested"
+      ? triedAndTested
+      : savedForLater
+    : filtered;
 
   return (
     <div className="mt-6">
@@ -172,6 +178,30 @@ export default function RecipeLibraryGrid() {
           aria-label="Search recipes"
         />
       </div>
+
+      {isAdmin && (
+        <div className="mt-4 flex gap-4 border-b border-stone-200">
+          {(
+            [
+              { status: "tried_and_tested", label: "Tried & Tested", count: triedAndTested.length },
+              { status: "saved_for_later", label: "New", count: savedForLater.length },
+            ] as const
+          ).map((tab) => (
+            <button
+              key={tab.status}
+              onClick={() => setActiveTab(tab.status)}
+              className={`pb-2 -mb-px text-sm font-medium border-b-2 transition-colors ${
+                activeTab === tab.status
+                  ? "border-amber-600 text-amber-700"
+                  : "border-transparent text-stone-500 hover:text-stone-700"
+              }`}
+              aria-current={activeTab === tab.status ? "true" : undefined}
+            >
+              {tab.label} <span className="text-xs text-stone-400">({tab.count})</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {ordered.length > 0 && (
         <p
@@ -216,6 +246,12 @@ export default function RecipeLibraryGrid() {
           >
             Clear filters
           </button>
+        </div>
+      ) : ordered.length === 0 ? (
+        <div className="mt-6 text-center text-sm text-stone-500 border border-dashed border-stone-300 rounded-xl py-10 px-4">
+          {activeTab === "tried_and_tested"
+            ? "No tried & tested recipes match yet — check the New tab."
+            : "No new recipes waiting — everything's been tried & tested."}
         </div>
       ) : (
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
