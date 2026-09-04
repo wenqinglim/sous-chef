@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import type { Recipe, RecipeStatus } from "@/types";
 import { addToMealPlan } from "@/lib/storage/localStorage";
 import { rescaleIngredientLine } from "@/lib/units/rescale";
+import { convertLineToMetric } from "@/lib/units/metric-convert";
 import { groupBySection, normalizeInstructions } from "@/lib/recipe/sections";
 import { useIsAdmin } from "@/components/AdminProvider";
 
@@ -27,6 +28,7 @@ export default function RecipeView({ recipe, onCustomize }: Props) {
   const router = useRouter();
   const [added, setAdded] = useState(false);
   const [viewServings, setViewServings] = useState(recipe.base_servings);
+  const [showMetric, setShowMetric] = useState(false);
   const [status, setStatus] = useState<RecipeStatus>(
     recipe.status ?? "saved_for_later"
   );
@@ -50,6 +52,11 @@ export default function RecipeView({ recipe, onCustomize }: Props) {
 
   const scaleFactor = viewServings / recipe.base_servings;
   const isScaled = viewServings !== recipe.base_servings;
+
+  function displayIngredientLine(rawText: string): string {
+    const scaled = isScaled ? rescaleIngredientLine(rawText, scaleFactor) : rawText;
+    return showMetric ? convertLineToMetric(scaled) : scaled;
+  }
 
   function handleAddToGroceryList() {
     addToMealPlan(recipe, viewServings);
@@ -286,11 +293,19 @@ export default function RecipeView({ recipe, onCustomize }: Props) {
             <h2 className="text-xs font-semibold text-stone-500 uppercase tracking-wide">
               Ingredients
             </h2>
-            {isScaled && (
-              <span className="text-xs text-amber-700">
-                scaled for {viewServings} servings · not saved
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {isScaled && (
+                <span className="text-xs text-amber-700">
+                  scaled for {viewServings} servings · not saved
+                </span>
+              )}
+              <button
+                onClick={() => setShowMetric((v) => !v)}
+                className="text-xs text-stone-500 hover:text-stone-700 underline"
+              >
+                {showMetric ? "Show original units" : "Convert to metric"}
+              </button>
+            </div>
           </div>
           <div className="space-y-4">
             {ingredientGroups.map((group, gi) => (
@@ -302,11 +317,7 @@ export default function RecipeView({ recipe, onCustomize }: Props) {
                 )}
                 <ul className="list-disc list-inside space-y-1 text-sm text-stone-700">
                   {group.items.map((ing, i) => (
-                    <li key={i}>
-                      {isScaled
-                        ? rescaleIngredientLine(ing.raw_text, scaleFactor)
-                        : ing.raw_text}
-                    </li>
+                    <li key={i}>{displayIngredientLine(ing.raw_text)}</li>
                   ))}
                 </ul>
               </div>
