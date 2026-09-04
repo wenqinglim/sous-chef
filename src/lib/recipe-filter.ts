@@ -1,3 +1,5 @@
+import type { RecipeStatus } from "@/types";
+
 /** Shape RecipeLibraryGrid's search/tag filter needs; nothing more. */
 export interface FilterableSummary {
   title: string;
@@ -44,4 +46,29 @@ export function uniqueTags(summaries: FilterableSummary[]): string[] {
     }
   }
   return Array.from(seen.values()).sort((a, b) => a.localeCompare(b));
+}
+
+/** Shape the library's status tabs need; nothing more. */
+export interface StatusedSummary {
+  status: RecipeStatus;
+}
+
+/**
+ * Split recipes into one bucket per curation status, for the library's tabs.
+ * Every status key is always present (empty array when nothing matches), so
+ * callers can index by the active tab without a fallback.
+ *
+ * Order within each bucket is preserved, so this composes with
+ * filterSummaries() — split the filtered list, not the raw one, to get
+ * per-tab counts that respect the active search/tag filters.
+ */
+export function splitByStatus<T extends StatusedSummary>(
+  summaries: T[]
+): Record<RecipeStatus, T[]> {
+  const byStatus: Record<RecipeStatus, T[]> = {
+    tried_and_tested: [],
+    saved_for_later: [],
+  };
+  for (const s of summaries) byStatus[s.status].push(s);
+  return byStatus;
 }
