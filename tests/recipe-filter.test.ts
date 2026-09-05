@@ -1,10 +1,10 @@
 /**
- * filterSummaries() / uniqueTags() — pure library-search/tag-filter helpers
- * used by RecipeLibraryGrid. Tested directly so the filter logic doesn't
- * need a DOM/RTL setup.
+ * filterSummaries() / uniqueTags() / splitByStatus() — pure helpers behind
+ * the library's search, tag filter and status tabs in RecipeLibraryGrid.
+ * Tested directly so the logic doesn't need a DOM/RTL setup.
  */
 
-import { filterSummaries, uniqueTags } from "@/lib/recipe-filter";
+import { filterSummaries, splitByStatus, uniqueTags } from "@/lib/recipe-filter";
 
 interface TestSummary {
   id: string;
@@ -101,5 +101,51 @@ describe("uniqueTags", () => {
 
   test("returns an empty list when no recipe has tags", () => {
     expect(uniqueTags([{ title: "a", tags: [] }])).toEqual([]);
+  });
+});
+
+describe("splitByStatus", () => {
+  interface StatusSummary {
+    id: string;
+    status: "tried_and_tested" | "saved_for_later";
+  }
+  const tried: StatusSummary = { id: "1", status: "tried_and_tested" };
+  const saved: StatusSummary = { id: "2", status: "saved_for_later" };
+
+  test("buckets recipes by status", () => {
+    expect(splitByStatus([tried, saved])).toEqual({
+      tried_and_tested: [tried],
+      saved_for_later: [saved],
+    });
+  });
+
+  test("both buckets exist even when a status has no recipes", () => {
+    expect(splitByStatus([tried])).toEqual({
+      tried_and_tested: [tried],
+      saved_for_later: [],
+    });
+    expect(splitByStatus([])).toEqual({
+      tried_and_tested: [],
+      saved_for_later: [],
+    });
+  });
+
+  test("preserves input order within each bucket", () => {
+    const a = { id: "a", status: "saved_for_later" } as const;
+    const b = { id: "b", status: "saved_for_later" } as const;
+    expect(splitByStatus([b, tried, a]).saved_for_later).toEqual([b, a]);
+  });
+
+  test("composes with filterSummaries so tab counts respect the filters", () => {
+    const summaries = [
+      { id: "1", title: "Green Curry", tags: [], status: "tried_and_tested" as const },
+      { id: "2", title: "Tomato Soup", tags: [], status: "tried_and_tested" as const },
+      { id: "3", title: "Red Curry", tags: [], status: "saved_for_later" as const },
+    ];
+    const byStatus = splitByStatus(
+      filterSummaries(summaries, "curry", new Set())
+    );
+    expect(byStatus.tried_and_tested).toEqual([summaries[0]]);
+    expect(byStatus.saved_for_later).toEqual([summaries[2]]);
   });
 });

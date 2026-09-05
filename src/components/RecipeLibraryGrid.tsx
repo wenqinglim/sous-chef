@@ -12,7 +12,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { RecipeStatus } from "@/types";
 import { useIsAdmin } from "@/components/AdminProvider";
-import { filterSummaries, uniqueTags } from "@/lib/recipe-filter";
+import { filterSummaries, splitByStatus, uniqueTags } from "@/lib/recipe-filter";
 
 interface RecipeSummary {
   id: string;
@@ -30,6 +30,15 @@ interface RecipeSummary {
 
 const MAX_VISIBLE_TAGS = 4;
 
+/** Library tabs, in display order. Admin-only — see the tablist below. */
+const TABS = [
+  { status: "tried_and_tested", label: "Tried & Tested" },
+  { status: "saved_for_later", label: "Want to Try" },
+] as const;
+
+const tabId = (status: RecipeStatus) => `library-tab-${status}`;
+const panelId = (status: RecipeStatus) => `library-panel-${status}`;
+
 export default function RecipeLibraryGrid() {
   const isAdmin = useIsAdmin();
   const [summaries, setSummaries] = useState<RecipeSummary[] | null>(null);
@@ -37,6 +46,7 @@ export default function RecipeLibraryGrid() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab] = useState<RecipeStatus>("tried_and_tested");
   // Hooks must run unconditionally (before the loading/empty early returns).
   const allTags = useMemo(() => uniqueTags(summaries ?? []), [summaries]);
 
@@ -147,16 +157,26 @@ export default function RecipeLibraryGrid() {
     });
   }
 
+  // Arrow/Home/End move between tabs (the tablist is a single tab stop).
+  function handleTabKeyDown(e: React.KeyboardEvent<HTMLButtonElement>) {
+    const current = TABS.findIndex((t) => t.status === activeTab);
+    let next: number;
+    if (e.key === "ArrowRight") next = (current + 1) % TABS.length;
+    else if (e.key === "ArrowLeft") next = (current - 1 + TABS.length) % TABS.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = TABS.length - 1;
+    else return;
+    e.preventDefault();
+    setActiveTab(TABS[next].status);
+    document.getElementById(tabId(TABS[next].status))?.focus();
+  }
+
   const filtered = filterSummaries(summaries, query, selectedTags);
 
-  // Saved-for-later recipes sink below tried-and-tested ones (admins are the
-  // only viewers who receive them); the stable sort keeps createdAt-desc order
-  // within each group.
-  const ordered = [...filtered].sort(
-    (a, b) =>
-      Number(a.status === "saved_for_later") -
-      Number(b.status === "saved_for_later")
-  );
+  // Non-admins only ever receive tried_and_tested rows (server-filtered), so
+  // there's nothing to split into tabs for them — they see one plain grid.
+  const byStatus = splitByStatus(filtered);
+  const ordered = isAdmin ? byStatus[activeTab] : filtered;
 
   return (
     <div className="mt-6">
@@ -172,6 +192,43 @@ export default function RecipeLibraryGrid() {
           aria-label="Search recipes"
         />
       </div>
+
+      {isAdmin && (
+        <div
+          role="tablist"
+          aria-label="Recipe status"
+          className="mt-4 flex gap-4 border-b border-stone-200"
+        >
+          {TABS.map((tab) => {
+            const selected = activeTab === tab.status;
+            return (
+              <button
+                key={tab.status}
+                id={tabId(tab.status)}
+                role="tab"
+                type="button"
+                aria-selected={selected}
+                aria-controls={panelId(tab.status)}
+                // Roving tabindex: Tab reaches the tablist once, arrow keys
+                // move within it (WAI-ARIA tabs pattern).
+                tabIndex={selected ? 0 : -1}
+                onClick={() => setActiveTab(tab.status)}
+                onKeyDown={handleTabKeyDown}
+                className={`pb-2 -mb-px text-sm font-medium border-b-2 transition-colors ${
+                  selected
+                    ? "border-amber-600 text-amber-700"
+                    : "border-transparent text-stone-500 hover:text-stone-700"
+                }`}
+              >
+                {tab.label}{" "}
+                <span className="text-xs text-stone-400">
+                  ({byStatus[tab.status].length})
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {ordered.length > 0 && (
         <p
@@ -217,8 +274,23 @@ export default function RecipeLibraryGrid() {
             Clear filters
           </button>
         </div>
+      ) : ordered.length === 0 ? (
+        <div className="mt-6 text-center text-sm text-stone-500 border border-dashed border-stone-300 rounded-xl py-10 px-4">
+          {activeTab === "tried_and_tested"
+            ? "No tried & tested recipes match yet — check the Want to Try tab."
+            : "Nothing waiting to be tried — everything's been tried & tested."}
+        </div>
       ) : (
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div
+          {...(isAdmin
+            ? {
+                id: panelId(activeTab),
+                role: "tabpanel",
+                "aria-labelledby": tabId(activeTab),
+              }
+            : {})}
+          className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+        >
           {ordered.map((summary) => (
             // Card is a plain container; the title is the real link. The
             // delete button is a sibling (not nested in an <a>), keeping the

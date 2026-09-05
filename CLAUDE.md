@@ -28,7 +28,7 @@ Next.js 15 App Router · TypeScript · Tailwind · Postgres (Neon) + Prisma 6 ·
 npm install
 npm run db:deploy     # apply Prisma migrations
 npm run dev           # http://localhost:3000
-npm test              # 446 tests; no DB needed (Prisma mocked)
+npm test              # 500 tests; no DB needed (Prisma mocked)
 npm run build         # prisma generate → migrate deploy → next build
 ```
 

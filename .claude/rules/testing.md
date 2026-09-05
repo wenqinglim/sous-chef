@@ -7,7 +7,7 @@ paths:
 
 # Testing
 
-`npm test` — 496 tests across 18 suites; Prisma is mocked (no DB needed).
+`npm test` — 500 tests across 18 suites; Prisma is mocked (no DB needed).
 
 ## Suite map
 
@@ -29,7 +29,7 @@ paths:
 | `tests/pipeline.test.ts` | Aggregate + purchase planning + full `derive()`; purchase-unit + slice→weight + metric-output regressions. |
 | `tests/safe-fetch.test.ts` | SSRF protections. |
 | `tests/recipes-repo.test.ts` | Recipe repository mappers + mocked-Prisma flows (upsert id retention, URL dedupe, summaries, `updateRecipe` edits, edited-recipe re-extract guard, status filtering in `listRecipes`, `setRecipeMetadata` never flips `edited`, upsert never writes status/tags on update, `options.autoTags` seeds tags on create only). |
-| `tests/recipe-filter.test.ts` | `filterSummaries()` (`src/lib/recipe-filter.ts`) — title search, single/multiple tag OR-match, empty selection = no filtering. |
+| `tests/recipe-filter.test.ts` | `src/lib/recipe-filter.ts` — `filterSummaries()` (title search, single/multiple tag OR-match, empty selection = no filtering), `uniqueTags()` (case-insensitive dedupe), `splitByStatus()` (status buckets for the library tabs, always-present keys, order preserved, composes with `filterSummaries`). |
 | `tests/auto-tagger.test.ts` | `inferIngredientTags` (registry `tag_hints` lookup, dedupe, adjective-stripping via `lookupIngredient`) + `inferRegionTags` (mocked Anthropic: closed-vocab enum, confidence threshold, 2-tag cap, graceful degradation) + `inferAutoTags` combining/deduping both. |
 
 ## Manual verification checklist (before releasing a UI change)
