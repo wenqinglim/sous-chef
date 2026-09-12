@@ -9,12 +9,14 @@
  * prep notes untouched.
  *
  * Units already expressed in metric (g, kg, ml, L, …) are left alone, as are
- * count units (cloves, slices, …) and opaque purchase units (can, bunch, …).
+ * count units (cloves, slices, …), opaque purchase units (can, bunch, …), and
+ * length units repurposed as weight approximations for ginger sizing (inch,
+ * cm — see `LENGTH_AS_WEIGHT_UNITS` below).
  *
- * Limitations: a parenthetical metric equivalent some sites already provide
- * (e.g. "1 cup (240 ml) milk") is left as-is rather than reconciled with the
- * newly converted leading quantity — same documented scope boundary as
- * `rescaleIngredientLine`'s handling of non-equivalent parens.
+ * If a parenthetical metric equivalent is already present (e.g. the "(240
+ * ml)" in "1 cup (240 ml) milk", or one kept in sync by the servings scaler),
+ * the leading quantity is left unconverted rather than producing two
+ * conflicting metric numbers on the same line.
  */
 
 import { findQuantityToken } from "./numeric-extract";
@@ -45,12 +47,28 @@ const METRIC_UNITS = new Set([
   "kilograms",
 ]);
 
+/** Alternation source matching any metric unit word, for use inside a RegExp. */
+const METRIC_UNIT_RE_SOURCE = [...METRIC_UNITS]
+  .sort((a, b) => b.length - a.length)
+  .map((u) => u.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+  .join("|");
+
+/**
+ * Length units repurposed in `conversions.ts` as weight-family approximations
+ * for ginger sizing (e.g. `inch` → 6g). They aren't real weight units — `cm`
+ * in particular is already metric — so they must never be treated as
+ * convertible even though `getUnit(...).family === "weight"`.
+ */
+const LENGTH_AS_WEIGHT_UNITS = new Set(["inch", "inches", '"', "cm"]);
+
 /** True if this unit is a weight/volume unit that isn't already metric. */
 export function isConvertibleToMetric(rawUnit: string): boolean {
   const def = getUnit(rawUnit);
   if (!def) return false;
   if (def.family !== "volume" && def.family !== "weight") return false;
-  return !METRIC_UNITS.has(normaliseUnit(rawUnit));
+  const normalised = normaliseUnit(rawUnit);
+  if (LENGTH_AS_WEIGHT_UNITS.has(normalised)) return false;
+  return !METRIC_UNITS.has(normalised);
 }
 
 function round(n: number, decimals: number): number {
@@ -61,7 +79,6 @@ function round(n: number, decimals: number): number {
 /** Pick a display unit (g/kg or ml/L) and format a base-unit value for it. */
 function formatBaseValue(
   baseValue: number,
-  base: "g" | "ml",
   targetUnit: "g" | "kg" | "ml" | "L"
 ): string {
   if (targetUnit === "kg" || targetUnit === "L") {
@@ -69,6 +86,18 @@ function formatBaseValue(
   }
   return String(round(baseValue, 0));
 }
+
+/**
+ * A parenthetical metric equivalent immediately following the unit, e.g. the
+ * "(240 ml)" in "1 cup (240 ml) milk". When present, the leading quantity is
+ * left unconverted rather than producing two conflicting metric numbers on
+ * one line (this also covers the servings-scaler composing with this toggle,
+ * since the scaler keeps such parens in sync with the scaled leading qty).
+ */
+const PAREN_METRIC_EQUIVALENT_RE = new RegExp(
+  `^\\s*\\([0-9.,/¼½¾⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞\\s]+\\s*(${METRIC_UNIT_RE_SOURCE})\\s*\\)`,
+  "i"
+);
 
 function pickTargetUnit(base: "g" | "ml", maxBaseValue: number): "g" | "kg" | "ml" | "L" {
   if (base === "g") return maxBaseValue >= 1000 ? "kg" : "g";
@@ -99,13 +128,15 @@ export function convertLineToMetric(rawText: string): string {
   const base = def.base as "g" | "ml";
   const tail = afterNumber.slice(unitMatch[0].length);
 
+  if (PAREN_METRIC_EQUIVALENT_RE.test(tail)) return rawText;
+
   const loBase = match.lo * def.toBase;
   const hiBase = match.hi != null ? match.hi * def.toBase : null;
   const targetUnit = pickTargetUnit(base, Math.max(loBase, hiBase ?? 0));
 
-  const loStr = formatBaseValue(loBase, base, targetUnit);
+  const loStr = formatBaseValue(loBase, targetUnit);
   if (hiBase != null) {
-    const hiStr = formatBaseValue(hiBase, base, targetUnit);
+    const hiStr = formatBaseValue(hiBase, targetUnit);
     return `${prefix}${loStr}-${hiStr} ${targetUnit}${tail}`;
   }
   return `${prefix}${loStr} ${targetUnit}${tail}`;

@@ -33,6 +33,12 @@ describe("isConvertibleToMetric", () => {
   test("unknown unit is not convertible", () => {
     expect(isConvertibleToMetric("fathom")).toBe(false);
   });
+
+  test("length-as-weight ginger units are not convertible", () => {
+    expect(isConvertibleToMetric("inch")).toBe(false);
+    expect(isConvertibleToMetric("inches")).toBe(false);
+    expect(isConvertibleToMetric("cm")).toBe(false);
+  });
 });
 
 describe("convertLineToMetric — pass-through cases", () => {
@@ -55,6 +61,24 @@ describe("convertLineToMetric — pass-through cases", () => {
 
   test("opaque purchase unit → unchanged", () => {
     expect(convertLineToMetric("1 can chickpeas")).toBe("1 can chickpeas");
+  });
+
+  test("ginger sized by length (inch/cm) → unchanged, not reinterpreted as weight", () => {
+    expect(convertLineToMetric("1 inch ginger, sliced")).toBe(
+      "1 inch ginger, sliced"
+    );
+    expect(convertLineToMetric("2 cm ginger, sliced")).toBe(
+      "2 cm ginger, sliced"
+    );
+  });
+
+  test("parenthetical metric equivalent already present → leading qty unchanged", () => {
+    expect(convertLineToMetric("1 cup (240 ml) milk")).toBe(
+      "1 cup (240 ml) milk"
+    );
+    expect(convertLineToMetric("2 cups (480 ml) milk")).toBe(
+      "2 cups (480 ml) milk"
+    );
   });
 });
 
